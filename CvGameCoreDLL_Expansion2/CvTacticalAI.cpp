@@ -6472,12 +6472,20 @@ bool TacticalAIHelpers::KillLoneEnemyIfPossible(CvUnit* pOurUnit, CvUnit* pEnemy
 				{
 					if (pOurUnit->TurnsToReachTarget(*it, CvUnit::MOVEFLAG_TURN_END_IS_NEXT_TURN, 1) == 0 && pOurUnit->canEverRangeStrikeAt(pEnemyUnit->getX(), pEnemyUnit->getY(), *it, false))
 					{
-						pOurUnit->PushMission(CvTypes::getMISSION_MOVE_TO(), (*it)->getX(), (*it)->getY(), CvUnit::MOVEFLAG_IGNORE_DANGER);
-						//sometimes the unit takes an unexpected path
-						if (pOurUnit->atPlot(**it))
+						// JW-fix: two stale pointers after the move. (1) the move can KILL our
+						// unit (lethal fire despite IGNORE_DANGER), leaving pOurUnit dangling —
+						// capture id/owner and re-fetch. (2) vAttackPlots aliases CvMap::
+						// m_vPlotsShared, a shared cache that ANY nested GetPlotsAtRangeX call
+						// during mission execution clears — *it is invalid after the push, so
+						// copy the plot pointer out first (plot objects themselves are stable).
+						CvPlot* pTargetPlot = *it;
+						PlayerTypes eOurOwner = pOurUnit->getOwner();
+						int iOurUnitID = pOurUnit->GetID();
+						pOurUnit->PushMission(CvTypes::getMISSION_MOVE_TO(), pTargetPlot->getX(), pTargetPlot->getY(), CvUnit::MOVEFLAG_IGNORE_DANGER);
+						pOurUnit = GET_PLAYER(eOurOwner).getUnit(iOurUnitID);
+						//sometimes the unit also takes an unexpected path
+						if (pOurUnit && !pOurUnit->isDelayedDeath() && pOurUnit->atPlot(*pTargetPlot))
 							pOurUnit->PushMission(CvTypes::getMISSION_RANGE_ATTACK(), pEnemyUnit->getX(), pEnemyUnit->getY());
-						else
-							OutputDebugString("pathfinding issue ...\n");
 						return true;
 					}
 				}

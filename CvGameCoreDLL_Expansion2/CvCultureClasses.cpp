@@ -319,6 +319,11 @@ CvString CvGameCulture::GetGreatWorkTooltip(int iIndex, PlayerTypes eOwner) cons
 CvString CvGameCulture::GetGreatWorkName(int iIndex) const
 {
 	PRECONDITION(iIndex < GetNumGreatWorks(), "Bad Great Work index");
+	// JW-fix: guard a negative index (e.g. iOurSwapWorkIndex == -1 passed by
+	// CultureHelpers::SendArtSwapNotification) that slips past the < check and
+	// reads m_CurrentGreatWorks[-1] out of bounds -> access violation.
+	if (iIndex < 0 || iIndex >= GetNumGreatWorks())
+		return "";
 	const CvGreatWork* pWork = &m_CurrentGreatWorks[iIndex];
 
 	return CultureHelpers::GetGreatWorkName(pWork->m_eType);
