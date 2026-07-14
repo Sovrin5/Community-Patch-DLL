@@ -510,6 +510,13 @@ public:
 	void SetOtherPlayerWarmongerAmountTimes100(PlayerTypes ePlayer, int iValue);
 	void ChangeOtherPlayerWarmongerAmountTimes100(PlayerTypes ePlayer, int iChange);
 
+	// JW3: how justified OUR wars against each victim are (percent applied to the
+	// warmonger penalties our conquests/DoWs generate). Runtime-only, never
+	// serialized - the Just Wars Lua rehydrates it on every load; defaults to 100
+	// so an unmodded game behaves exactly as before.
+	int GetWarJusticePercent(PlayerTypes eVictim) const;
+	void SetWarJusticePercent(PlayerTypes eVictim, int iValue);
+
 	// ------------------------------------
 	// Aggressive Postures
 	// ------------------------------------
@@ -1974,6 +1981,7 @@ private:
 	unsigned char m_aiNumMajorsAttacked[MAX_MAJOR_CIVS];
 	unsigned char m_aiNumMajorsConquered[MAX_MAJOR_CIVS];
 	int m_aiWarmongerAmountTimes100[MAX_MAJOR_CIVS];
+	unsigned char m_aiWarJusticePercent[MAX_MAJOR_CIVS]; // JW3: runtime-only, not serialized
 
 	// Aggressive Postures
 	char m_aeMilitaryAggressivePosture[MAX_CIV_PLAYERS];
