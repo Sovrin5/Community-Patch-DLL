@@ -6,7 +6,7 @@ permissions:
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, jw3-justice ]
     tags:
       - 'Release-*'  # Triggers on official releases (always builds)
   pull_request:
