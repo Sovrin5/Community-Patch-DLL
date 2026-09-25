@@ -206,6 +206,7 @@ void CvDiplomacyAI::Init(CvPlayer* pPlayer)
 			m_aiNumMinorsConquered[iI] = 0;
 			m_aiNumMajorsConquered[iI] = 0;
 			m_aiWarmongerAmountTimes100[iI] = 0;
+			m_aiWarJusticePercent[iI] = 100; // JW3: neutral until Lua says otherwise
 
 			// Aggressive Postures
 			m_aePlotBuyingAggressivePosture[iI] = AGGRESSIVE_POSTURE_NONE;
@@ -5552,6 +5553,8 @@ void CvDiplomacyAI::ChangeOtherPlayerNumMajorsAttacked(PlayerTypes ePlayer, int 
 	}
 
 	int iWarmongerValueTimes100 = CvDiplomacyAIHelpers::GetWarmongerTriggerPenalty(ePlayer, eAttackedTeam, GetID(), WARMONGER_MAJOR_ATTACKED);
+	// JW3: scale the DoW penalty by how justified the aggressor's war on this team is
+	iWarmongerValueTimes100 = iWarmongerValueTimes100 * GET_PLAYER(ePlayer).GetDiplomacyAI()->GetWarJusticePercent(GET_TEAM(eAttackedTeam).getLeaderID()) / 100;
 	ChangeOtherPlayerWarmongerAmountTimes100(ePlayer, iWarmongerValueTimes100);
 	SetOtherPlayerNumMajorsAttacked(ePlayer, GetOtherPlayerNumMajorsAttacked(ePlayer) + iChange);
 	DoUpdateWarmongerThreats(true);
@@ -5689,6 +5692,24 @@ void CvDiplomacyAI::SetOtherPlayerWarmongerAmountTimes100(PlayerTypes ePlayer, i
 void CvDiplomacyAI::ChangeOtherPlayerWarmongerAmountTimes100(PlayerTypes ePlayer, int iChange)
 {
 	SetOtherPlayerWarmongerAmountTimes100(ePlayer, GetOtherPlayerWarmongerAmountTimes100(ePlayer) + iChange);
+}
+
+// JW3: justice scaling for the warmonger penalties OUR wars generate, per victim.
+// Not serialized; the Just Wars Lua pushes values at war classification and on load.
+int CvDiplomacyAI::GetWarJusticePercent(PlayerTypes eVictim) const
+{
+	if (eVictim < 0 || eVictim >= MAX_MAJOR_CIVS)
+		return 100;
+	return m_aiWarJusticePercent[eVictim];
+}
+
+void CvDiplomacyAI::SetWarJusticePercent(PlayerTypes eVictim, int iValue)
+{
+	if (eVictim < 0 || eVictim >= MAX_MAJOR_CIVS)
+		return;
+	if (iValue < 0) iValue = 0;
+	if (iValue > 200) iValue = 200;
+	m_aiWarJusticePercent[eVictim] = (unsigned char) iValue;
 }
 
 //	-----------------------------------------------------------------------------------------------
@@ -54164,6 +54185,8 @@ void CvDiplomacyAIHelpers::ApplyWarmongerPenalties(CvCity* pCity, PlayerTypes eC
 		if (GET_PLAYER(eObserver).getTeam() != GET_PLAYER(eConqueror).getTeam() && GET_PLAYER(eObserver).isAlive() && GET_PLAYER(eObserver).isMajorCiv())
 		{
 			int iWarmonger = GetCityWarmongerValue(pCity, eConqueror, eCityOwner, eObserver);
+			// JW3: scale capture warmongering by the conqueror's justice vs the city's former owner
+			iWarmonger = iWarmonger * GET_PLAYER(eConqueror).GetDiplomacyAI()->GetWarJusticePercent(eCityOwner) / 100;
 			if (iWarmonger > 0)
 			{
 				//CUSTOMLOG("WarmongerTimes100: Total=%i", iWarmonger);

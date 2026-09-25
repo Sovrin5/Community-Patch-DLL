@@ -1000,6 +1000,10 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(GetWonderDisputeLevel);
 	Method(GetMinorCivDisputeLevel);
 	Method(GetWarmongerThreat);
+	Method(GetOtherPlayerWarmongerAmountTimes100);
+	Method(ChangeOtherPlayerWarmongerAmountTimes100);
+	Method(GetWarJusticePercent);
+	Method(SetWarJusticePercent);
 	Method(IsDemandEverMade);
 	Method(GetNumCiviliansReturnedToMe);
 	Method(GetNumLandmarksBuiltForMe);
@@ -11749,6 +11753,48 @@ int CvLuaPlayer::lGetWarmongerThreat(lua_State* L)
 
 	lua_pushinteger(L, iValue);
 	return 1;
+}
+//------------------------------------------------------------------------------
+// JW3: this player's (observer's) accumulated warmonger score toward eOtherPlayer
+int CvLuaPlayer::lGetOtherPlayerWarmongerAmountTimes100(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eOtherPlayer = (PlayerTypes) lua_tointeger(L, 2);
+
+	lua_pushinteger(L, pkPlayer->GetDiplomacyAI()->GetOtherPlayerWarmongerAmountTimes100(eOtherPlayer));
+	return 1;
+}
+//------------------------------------------------------------------------------
+// JW3: adjust this player's (observer's) warmonger score toward eOtherPlayer
+int CvLuaPlayer::lChangeOtherPlayerWarmongerAmountTimes100(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eOtherPlayer = (PlayerTypes) lua_tointeger(L, 2);
+	const int iChange = lua_tointeger(L, 3);
+
+	pkPlayer->GetDiplomacyAI()->ChangeOtherPlayerWarmongerAmountTimes100(eOtherPlayer, iChange);
+	pkPlayer->GetDiplomacyAI()->DoUpdateWarmongerThreats(true);
+	return 0;
+}
+//------------------------------------------------------------------------------
+// JW3: how justified this player's war against eVictim is (0-200, 100 = neutral)
+int CvLuaPlayer::lGetWarJusticePercent(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eVictim = (PlayerTypes) lua_tointeger(L, 2);
+
+	lua_pushinteger(L, pkPlayer->GetDiplomacyAI()->GetWarJusticePercent(eVictim));
+	return 1;
+}
+//------------------------------------------------------------------------------
+int CvLuaPlayer::lSetWarJusticePercent(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eVictim = (PlayerTypes) lua_tointeger(L, 2);
+	const int iValue = lua_tointeger(L, 3);
+
+	pkPlayer->GetDiplomacyAI()->SetWarJusticePercent(eVictim, iValue);
+	return 0;
 }
 //------------------------------------------------------------------------------
 int CvLuaPlayer::lIsDemandEverMade(lua_State* L)

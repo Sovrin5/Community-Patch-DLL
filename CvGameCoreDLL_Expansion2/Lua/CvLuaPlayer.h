@@ -1074,6 +1074,10 @@ protected:
 	static int lGetWonderDisputeLevel(lua_State* L);
 	static int lGetMinorCivDisputeLevel(lua_State* L);
 	static int lGetWarmongerThreat(lua_State* L);
+	static int lGetOtherPlayerWarmongerAmountTimes100(lua_State* L);
+	static int lChangeOtherPlayerWarmongerAmountTimes100(lua_State* L);
+	static int lGetWarJusticePercent(lua_State* L);
+	static int lSetWarJusticePercent(lua_State* L);
 	static int lIsDemandEverMade(lua_State* L);
 	static int lGetNumCiviliansReturnedToMe(lua_State* L);
 	static int lGetNumLandmarksBuiltForMe(lua_State* L);
