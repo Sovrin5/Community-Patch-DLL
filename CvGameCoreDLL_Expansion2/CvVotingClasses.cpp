@@ -11829,12 +11829,79 @@ void CvLeagueAI::FindBestVoteChoices(CvEnactProposal* pProposal, VoteConsiderati
 	}
 
 	std::vector<int> vChoices = pLeague->GetChoicesForDecision(pProposal->GetVoterDecision()->GetType(), GetPlayer()->GetID());
+
+	// v3.5/F4: on an ordinary yes/no resolution, match what our master already voted here (or abstain if it is
+	// mistreating us), unless one of the three self-preservation exclusions applies. See
+	// JW2-v3.5-DESIGN-PROPOSAL.md SS4.2/F4.
+	int iMasterChoice = -1;
+	bool bMasterVoteApplies = false;
+	AlignmentLevels eMasterAlignment = ALIGNMENT_NEUTRAL;
+	if (pProposal->GetVoterDecision()->GetType() == RESOLUTION_DECISION_YES_OR_NO && GetPlayer()->IsVassalOfSomeone())
+	{
+		TeamTypes eMasterTeam = GET_TEAM(GetPlayer()->getTeam()).GetMaster();
+		PlayerTypes eMaster = (eMasterTeam != NO_TEAM) ? GET_TEAM(eMasterTeam).getLeaderID() : NO_PLAYER;
+		if (eMaster != NO_PLAYER)
+		{
+			for (uint i = 0; i < vChoices.size(); i++)
+			{
+				if (pProposal->GetVoterDecision()->GetVotesCastForChoice(vChoices[i], eMaster) > 0)
+				{
+					iMasterChoice = vChoices[i];
+					break;
+				}
+			}
+
+			// nothing to match yet if the master has not voted this session (turn order dependent)
+			if (iMasterChoice != -1)
+			{
+				int iNumOurAlliances = 0;
+				if (pProposal->GetEffects()->bDecolonization)
+				{
+					for (int iMinor = MAX_MAJOR_CIVS; iMinor < MAX_CIV_PLAYERS && iNumOurAlliances < 2; iMinor++)
+					{
+						PlayerTypes eMinor = (PlayerTypes)iMinor;
+						if (GET_PLAYER(eMinor).isAlive() && GET_PLAYER(eMinor).isMinorCiv() && GET_PLAYER(eMinor).GetMinorCivAI()->GetAlly() == GetPlayer()->GetID())
+						{
+							iNumOurAlliances++;
+						}
+					}
+				}
+
+				// exclusions: cases where our master's interest and ours are not actually the same thing
+				bool bExempt = IsSanctionAgainstUs(pProposal->GetType(), pProposal->GetProposalPlayer(), pProposal->GetProposerDecision()->GetDecision())
+					|| pProposal->GetEffects()->bEndAllCurrentVassals
+					|| (pProposal->GetEffects()->bDecolonization && iNumOurAlliances >= 2);
+
+				if (!bExempt)
+				{
+					bMasterVoteApplies = true;
+					eMasterAlignment = EvaluateAlignment(eMaster, false);
+				}
+			}
+		}
+	}
+
 	for (uint i = 0; i < vChoices.size(); i++)
 	{
 		VoteConsideration consideration(/*bEnact*/ true, pProposal->GetID(), vChoices[i], 0);
 		int iScore = ScoreVoteChoice(pProposal, vChoices[i], /*bConsiderGlobal*/ true);
 
 		iScore = MAX(iScore, 0); // No negative weights
+
+		if (bMasterVoteApplies)
+		{
+			if (eMasterAlignment >= ALIGNMENT_FRIEND)
+			{
+				// override: our master's choice wins outright, discarding our own scoring for this vote
+				iScore = (vChoices[i] == iMasterChoice) ? 1000000 : 0;
+			}
+			else if (vChoices[i] != iMasterChoice)
+			{
+				// never-vote-against floor: we may not cast delegates for the choice opposing our master's
+				iScore = 0;
+			}
+		}
+
 		vScoredChoices.push_back(consideration, iScore);
 	}
 
@@ -11876,12 +11943,79 @@ void CvLeagueAI::FindBestVoteChoices(CvRepealProposal* pProposal, VoteConsiderat
 	}
 
 	std::vector<int> vChoices = pLeague->GetChoicesForDecision(pProposal->GetRepealDecision()->GetType(), GetPlayer()->GetID());
+
+	// v3.5/F4: match what our master already voted here (or abstain if it is mistreating us), unless one of
+	// the three self-preservation exclusions applies. See JW2-v3.5-DESIGN-PROPOSAL.md SS4.2/F4.
+	int iMasterChoice = -1;
+	bool bMasterVoteApplies = false;
+	AlignmentLevels eMasterAlignment = ALIGNMENT_NEUTRAL;
+	if (GetPlayer()->IsVassalOfSomeone())
+	{
+		TeamTypes eMasterTeam = GET_TEAM(GetPlayer()->getTeam()).GetMaster();
+		PlayerTypes eMaster = (eMasterTeam != NO_TEAM) ? GET_TEAM(eMasterTeam).getLeaderID() : NO_PLAYER;
+		if (eMaster != NO_PLAYER)
+		{
+			for (uint i = 0; i < vChoices.size(); i++)
+			{
+				if (pProposal->GetRepealDecision()->GetVotesCastForChoice(vChoices[i], eMaster) > 0)
+				{
+					iMasterChoice = vChoices[i];
+					break;
+				}
+			}
+
+			// nothing to match yet if the master has not voted this session (turn order dependent)
+			if (iMasterChoice != -1)
+			{
+				int iNumOurAlliances = 0;
+				if (pProposal->GetEffects()->bDecolonization)
+				{
+					for (int iMinor = MAX_MAJOR_CIVS; iMinor < MAX_CIV_PLAYERS && iNumOurAlliances < 2; iMinor++)
+					{
+						PlayerTypes eMinor = (PlayerTypes)iMinor;
+						if (GET_PLAYER(eMinor).isAlive() && GET_PLAYER(eMinor).isMinorCiv() && GET_PLAYER(eMinor).GetMinorCivAI()->GetAlly() == GetPlayer()->GetID())
+						{
+							iNumOurAlliances++;
+						}
+					}
+				}
+
+				CvActiveResolution* pTargetResolution = pLeague->GetActiveResolution(pProposal->GetTargetResolutionID());
+				// exclusions: cases where our master's interest and ours are not actually the same thing
+				bool bExempt = (pTargetResolution != NULL && IsSanctionAgainstUs(pTargetResolution, pProposal->GetProposalPlayer()))
+					|| pProposal->GetEffects()->bEndAllCurrentVassals
+					|| (pProposal->GetEffects()->bDecolonization && iNumOurAlliances >= 2);
+
+				if (!bExempt)
+				{
+					bMasterVoteApplies = true;
+					eMasterAlignment = EvaluateAlignment(eMaster, false);
+				}
+			}
+		}
+	}
+
 	for (uint i = 0; i < vChoices.size(); i++)
 	{
 		VoteConsideration consideration(/*bEnact*/ false, pProposal->GetID(), vChoices[i], 0);
 		int iScore = ScoreVoteChoice(pProposal, vChoices[i],/*bConsiderGlobal*/ true);
 
 		iScore = MAX(iScore, 0); // No negative weights
+
+		if (bMasterVoteApplies)
+		{
+			if (eMasterAlignment >= ALIGNMENT_FRIEND)
+			{
+				// override: our master's choice wins outright, discarding our own scoring for this vote
+				iScore = (vChoices[i] == iMasterChoice) ? 1000000 : 0;
+			}
+			else if (vChoices[i] != iMasterChoice)
+			{
+				// never-vote-against floor: we may not cast delegates for the choice opposing our master's
+				iScore = 0;
+			}
+		}
+
 		vScoredChoices.push_back(consideration, iScore);
 	}
 
