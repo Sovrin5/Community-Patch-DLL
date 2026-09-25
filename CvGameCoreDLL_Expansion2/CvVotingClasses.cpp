@@ -1,4 +1,4 @@
-/*	-------------------------------------------------------------------------------------------------------
+﻿/*	-------------------------------------------------------------------------------------------------------
 	© 1991-2012 Take-Two Interactive Software and its subsidiaries.  Developed by Firaxis Games.  
 	Sid Meier's Civilization V, Civ, Civilization, 2K Games, Firaxis Games, Take-Two Interactive Software 
 	and their respective logos are all trademarks of Take-Two interactive Software, Inc.  
@@ -11010,71 +11010,37 @@ CvLeagueAI::AlignmentLevels CvLeagueAI::EvaluateAlignment(PlayerTypes ePlayer, b
 	// Current vassal?
 	if (pDiplo->IsVassal(ePlayer))
 	{
+		// v3.5/F2: alignment toward our own master is a bucket, not a sum - see JW2-v3.5-DESIGN-PROPOSAL.md SS4.2.
 		VassalTreatmentTypes eTreatmentLevel = pDiplo->GetVassalTreatmentLevel(ePlayer);
 		bool bReallyBadTreatment = pDiplo->GetVassalTheftScore(ePlayer) > 0 || pDiplo->GetVassalDenouncementScore(ePlayer) > 0 || pDiplo->BrokeVassalAgreement(ePlayer);
+		bool bVoluntary = pDiplo->IsVoluntaryVassalage(ePlayer);
 
-		// Protection of our lands? The point of vassalage is protection, after all!
-		int iVassalProtectValue = pDiplo->GetVassalProtectValue(ePlayer);
-		int iMaxPositiveValue = pDiplo->GetMaxVassalProtectValue();
-		int iMaxNegativeValue = pDiplo->GetMaxVassalFailedProtectValue();
-		if (iVassalProtectValue < iMaxNegativeValue / 2)
+		AlignmentLevels eVassalAlignment = ALIGNMENT_NEUTRAL;
+		switch (eTreatmentLevel)
 		{
-			iAlignment -= 2;
-			bReallyBadTreatment = true;
+		case NO_VASSAL_TREATMENT:
+			UNREACHABLE();
+		case VASSAL_TREATMENT_CONTENT:
+			eVassalAlignment = bVoluntary ? ALIGNMENT_ALLY : ALIGNMENT_CONFIDANT;
+			break;
+		case VASSAL_TREATMENT_DISAGREE:
+			eVassalAlignment = bVoluntary ? ALIGNMENT_CONFIDANT : ALIGNMENT_FRIEND;
+			break;
+		case VASSAL_TREATMENT_MISTREATED:
+			eVassalAlignment = ALIGNMENT_NEUTRAL;
+			break;
+		case VASSAL_TREATMENT_UNHAPPY:
+			eVassalAlignment = ALIGNMENT_RIVAL;
+			break;
+		case VASSAL_TREATMENT_ENSLAVED:
+			eVassalAlignment = ALIGNMENT_HATRED;
+			break;
 		}
-		else if (iVassalProtectValue <= iMaxNegativeValue / 5)
-			iAlignment -= 1;
-		else if (iVassalProtectValue > iMaxPositiveValue / 2)
-			iAlignment += 2;
-		else if (iVassalProtectValue >= iMaxPositiveValue / 5)
-			iAlignment += 1;
 
-		if (pDiplo->IsVoluntaryVassalage(ePlayer) && !bReallyBadTreatment && !bUntrustworthy)
-		{
-			switch (eTreatmentLevel)
-			{
-			case NO_VASSAL_TREATMENT:
-				UNREACHABLE();
-			case VASSAL_TREATMENT_CONTENT:
-				iAlignment += pDiplo->GetVassalTreatedScore(ePlayer) < 0 ? 6 : 5;
-				break;
-			case VASSAL_TREATMENT_DISAGREE:
-				iAlignment += 2;
-				break;
-			case VASSAL_TREATMENT_MISTREATED:
-				iAlignment += -2;
-				break;
-			case VASSAL_TREATMENT_UNHAPPY:
-				iAlignment += -4;
-				break;
-			case VASSAL_TREATMENT_ENSLAVED:
-				iAlignment += -6;
-				break;
-			}
-		}
-		else
-		{
-			switch (eTreatmentLevel)
-			{
-			case NO_VASSAL_TREATMENT:
-				UNREACHABLE();
-			case VASSAL_TREATMENT_CONTENT:
-				iAlignment += bReallyBadTreatment ? 1 : pDiplo->GetVassalTreatedScore(ePlayer) < 0 ? 4 : 3;
-				break;
-			case VASSAL_TREATMENT_DISAGREE:
-				iAlignment += bReallyBadTreatment ? -1 : 1;
-				break;
-			case VASSAL_TREATMENT_MISTREATED:
-				iAlignment += bReallyBadTreatment ? -5 : -3;
-				break;
-			case VASSAL_TREATMENT_UNHAPPY:
-				iAlignment += bReallyBadTreatment ? -7 : -5;
-				break;
-			case VASSAL_TREATMENT_ENSLAVED:
-				iAlignment += bReallyBadTreatment ? -9 : -7;
-				break;
-			}
-		}
+		if (bReallyBadTreatment)
+			eVassalAlignment = static_cast<AlignmentLevels>(eVassalAlignment - 1); // one step worse: theft, denouncement or a broken agreement
+
+		return eVassalAlignment;
 	}
 	else
 	{
