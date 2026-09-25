@@ -13300,6 +13300,7 @@ int CvLeagueAI::ScoreVoteChoiceYesNo(CvProposal* pProposal, int iChoice, bool bE
 		PlayerTypes ePlayer = GetPlayer()->GetID();
 
 		// first, check if a player already has enough votes for diplo victory
+		// v3.5/3b: trigger the guard earlier (75% of needed votes, not 100%) - see JW2-v3.5-DESIGN-PROPOSAL.md SS5.2.
 		if (bDiploVictoryEnabled)
 		{
 			int iNeededVotes = GC.getGame().GetVotesNeededForDiploVictory();
@@ -13310,7 +13311,7 @@ int CvLeagueAI::ScoreVoteChoiceYesNo(CvProposal* pProposal, int iChoice, bool bE
 				{
 					int iVotes = GC.getGame().GetGameLeagues()->GetActiveLeague()->CalculateStartingVotesForMember(eMajor, true);
 					int iVoteRatio = (iVotes * 100) / max(1, iNeededVotes);
-					if (iVoteRatio >= 100)
+					if (iVoteRatio >= 75)
 					{
 						if (ePlayer == eMajor)
 						{
@@ -13332,6 +13333,8 @@ int CvLeagueAI::ScoreVoteChoiceYesNo(CvProposal* pProposal, int iChoice, bool bE
 		}
 
 		// go though all city-states and check their alliance status
+		// v3.5/3b: an AI only counts a foreign alliance as a gain where it is actually the runner-up, and a friend's
+		// alliance being broken is always a cost, not a floor-at-zero non-event - see JW2-v3.5-DESIGN-PROPOSAL.md SS5.2.
 		for (int iMinor = MAX_MAJOR_CIVS; iMinor < MAX_CIV_PLAYERS; iMinor++)
 		{
 			PlayerTypes eMinor = (PlayerTypes)iMinor;
@@ -13354,8 +13357,8 @@ int CvLeagueAI::ScoreVoteChoiceYesNo(CvProposal* pProposal, int iChoice, bool bE
 								iContenderInfluence = max(iContenderInfluence, GET_PLAYER(eMinor).GetMinorCivAI()->GetEffectiveFriendshipWithMajor(eMajor));
 							}
 						}
-						// negative score based on how much influence the contender needs to supplant us
-						int iWeight = -range((iAllyInfluence - iContenderInfluence) / 4, 25, 150);
+						// the alliance itself costs 150, the safety margin against the contender is on top
+						int iWeight = -(150 + range((iAllyInfluence - iContenderInfluence) / 4, 0, 150));
 						if (bForSelf) {
 							iWeight *= 2;
 						}
@@ -13365,18 +13368,44 @@ int CvLeagueAI::ScoreVoteChoiceYesNo(CvProposal* pProposal, int iChoice, bool bE
 					else
 					{
 						int iOwnInfluence = GET_PLAYER(eMinor).GetMinorCivAI()->GetEffectiveFriendshipWithMajor(ePlayer);
-						// positive score based on how much influence we need to become allies
-						int iWeight = range((iAllyInfluence - iOwnInfluence) / 4, 25, 150);
-						// at war with the current ally?
+						int iContenderInfluence = 0;
+						for (int iMajor = 0; iMajor < MAX_MAJOR_CIVS; iMajor++)
+						{
+							PlayerTypes eMajor = (PlayerTypes)iMajor;
+							if (eAlliedPlayer != eMajor)
+							{
+								iContenderInfluence = max(iContenderInfluence, GET_PLAYER(eMinor).GetMinorCivAI()->GetEffectiveFriendshipWithMajor(eMajor));
+							}
+						}
+						// are we the runner-up (the highest influence among the non-allies)?
+						bool bWeAreRunnerUp = (iOwnInfluence >= iContenderInfluence);
+
+						int iRaw = 0;
 						if (GetPlayer()->IsAtWarWith(eAlliedPlayer))
 						{
-							iWeight = 150;
+							// at war with the current ally: we'd take the alliance by force regardless of influence standing
+							iRaw = 100;
 						}
+						else if (bWeAreRunnerUp && iOwnInfluence >= /*30*/ GD_INT_GET(FRIENDSHIP_THRESHOLD_FRIENDS))
+						{
+							// only a real gain if we are actually next in line for this alliance
+							iRaw = range((iAllyInfluence - iOwnInfluence) / 4, 25, 100);
+						}
+						// otherwise 0: we could not win this alliance, so its loss is not a gain for us
+
+						int iWeight = iRaw;
 						if (bForSelf)
 						{
-							// Multiplier between 0 and 2 for our opinion of the ally (higher score if CS allied to enemy, lower score if allied to a friend)
-							iWeight *= 2 * (CIV_OPINION_ALLY - GetPlayer()->GetDiplomacyAI()->GetCivOpinion(eAlliedPlayer));
-							iWeight /= CIV_OPINION_ALLY;
+							CivOpinionTypes eAllyOpinion = GetPlayer()->GetDiplomacyAI()->GetCivOpinion(eAlliedPlayer);
+							if (eAllyOpinion >= CIV_OPINION_FRIEND)
+							{
+								// a friend's alliance broken is a cost, not a non-event
+								iWeight = -50;
+							}
+							else if (eAllyOpinion <= CIV_OPINION_ENEMY)
+							{
+								iWeight = iRaw * 2;
+							}
 						}
 						iExtra += iWeight;
 					}
