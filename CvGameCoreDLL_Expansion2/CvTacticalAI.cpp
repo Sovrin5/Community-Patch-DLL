@@ -6498,12 +6498,15 @@ bool TacticalAIHelpers::KillLoneEnemyIfPossible(CvUnit* pOurUnit, CvUnit* pEnemy
 					{
 						// PushMission might invalidate the iterator because of the shared buffer used in GetPlotsAtRangeX
 						CvPlot* pPlot = *it;
+						// JW-fix: the move can KILL our unit (lethal fire despite IGNORE_DANGER),
+						// leaving pOurUnit dangling -- capture id/owner and re-fetch after the move.
+						PlayerTypes eOurOwner = pOurUnit->getOwner();
+						int iOurUnitID = pOurUnit->GetID();
 						pOurUnit->PushMission(CvTypes::getMISSION_MOVE_TO(), pPlot->getX(), pPlot->getY(), CvUnit::MOVEFLAG_IGNORE_DANGER);
-						//sometimes the unit takes an unexpected path
-						if (pOurUnit->atPlot(*pPlot))
+						pOurUnit = GET_PLAYER(eOurOwner).getUnit(iOurUnitID);
+						//sometimes the unit also takes an unexpected path
+						if (pOurUnit && !pOurUnit->isDelayedDeath() && pOurUnit->atPlot(*pPlot))
 							pOurUnit->PushMission(CvTypes::getMISSION_RANGE_ATTACK(), pEnemyUnit->getX(), pEnemyUnit->getY());
-						else
-							OutputDebugString("pathfinding issue ...\n");
 						return true;
 					}
 				}
