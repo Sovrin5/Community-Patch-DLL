@@ -9498,18 +9498,7 @@ void CvGameLeagues::DoPlayerTurn(CvPlayer& kPlayer)
 					// Allocate free votes
 					if (it->CanVote(kPlayer.GetID()))
 					{
-						if (kPlayer.IsVassalOfSomeone())
-						{
-							for (EnactProposalList::iterator it2 = it->m_vEnactProposals.begin(); it2 != it->m_vEnactProposals.end(); ++it2)
-							{
-								if (it2->GetEffects()->bDiplomaticVictory)
-								{
-									kPlayer.GetLeagueAI()->DoAbstainAllVotes(&(*it));
-									return;
-								}
-							}
-						}
-
+						// v3.5/F1: vassals no longer abstain the whole World Leader session; see ScoreVoteChoicePlayer.
 						if (it->IsAnythingProposed())
 						{
 							if (kPlayer.isHuman(ISHUMAN_AI_WORLD_CONGRESS))
@@ -13836,48 +13825,62 @@ int CvLeagueAI::ScoreVoteChoicePlayer(CvProposal* pProposal, int iChoice, bool b
 	// == Diplomatic Victory ==
 	if (pProposal->GetEffects()->bDiplomaticVictory)
 	{
-		switch (eAlignment)
+		// v3.5/F1: a vassal cannot crown a foreign World Leader, and never votes against its own master here.
+		if (GetPlayer()->IsVassalOfSomeone())
 		{
-		case ALIGNMENT_LEADER:
-			iScore += 100000;
-			break;
-		case ALIGNMENT_SELF:
-			iScore += max((/*1000*/ GD_INT_GET(AI_WORLD_LEADER_BASE_WEIGHT_SELF) + 30 * iOurPercent), 1);
-			break;
-		case ALIGNMENT_TEAMMATE:
-		case ALIGNMENT_LIBERATOR:
-			iScore += /*1000*/ GD_INT_GET(AI_WORLD_LEADER_BASE_WEIGHT_SELF) + 30 * iTheirPercent;
-			break;
-		case ALIGNMENT_ALLY:
-			if (bIsLiked)
+			if (GetPlayer()->GetDiplomacyAI()->IsVassal(eChoicePlayer) && eAlignment >= ALIGNMENT_CONFIDANT)
 			{
-				iScore += 25 * iTheirPercent;
+				// CONTENT (either kind) or DISAGREE-and-voluntary: real support for our master's bid.
+				iScore += /*1000*/ GD_INT_GET(AI_WORLD_LEADER_BASE_WEIGHT_SELF) + 30 * iTheirPercent;
 			}
-			break;
-		case ALIGNMENT_CONFIDANT:
-			if (bIsLiked)
+			// Else: candidate is not our master, or our master's treatment of us is DISAGREE-capitulated/MISTREATED/
+			// UNHAPPY/ENSLAVED - abstain these delegates on this proposal (0), never a negative score.
+		}
+		else
+		{
+			switch (eAlignment)
 			{
-				iScore += 15 * iTheirPercent;
+			case ALIGNMENT_LEADER:
+				iScore += 100000;
+				break;
+			case ALIGNMENT_SELF:
+				iScore += max((/*1000*/ GD_INT_GET(AI_WORLD_LEADER_BASE_WEIGHT_SELF) + 30 * iOurPercent), 1);
+				break;
+			case ALIGNMENT_TEAMMATE:
+			case ALIGNMENT_LIBERATOR:
+				iScore += /*1000*/ GD_INT_GET(AI_WORLD_LEADER_BASE_WEIGHT_SELF) + 30 * iTheirPercent;
+				break;
+			case ALIGNMENT_ALLY:
+				if (bIsLiked)
+				{
+					iScore += 25 * iTheirPercent;
+				}
+				break;
+			case ALIGNMENT_CONFIDANT:
+				if (bIsLiked)
+				{
+					iScore += 15 * iTheirPercent;
+				}
+				break;
+			case ALIGNMENT_FRIEND:
+				if (bIsLiked)
+				{
+					iScore += 10 * iTheirPercent;
+				}
+				break;
+			case ALIGNMENT_RIVAL:
+				iScore += -25 * iTheirPercent;
+				break;
+			case ALIGNMENT_HATRED:
+				iScore += -100 * iTheirPercent;
+				break;
+			case ALIGNMENT_ENEMY:
+			case ALIGNMENT_WAR:
+				iScore += -250 * iTheirPercent;
+				break;
+			default:
+				break;
 			}
-			break;
-		case ALIGNMENT_FRIEND:
-			if (bIsLiked)
-			{
-				iScore += 10 * iTheirPercent;
-			}
-			break;
-		case ALIGNMENT_RIVAL:
-			iScore += -25 * iTheirPercent;
-			break;
-		case ALIGNMENT_HATRED:
-			iScore += -100 * iTheirPercent;
-			break;
-		case ALIGNMENT_ENEMY:
-		case ALIGNMENT_WAR:
-			iScore += -250 * iTheirPercent;
-			break;
-		default:
-			break;
 		}
 	}
 
