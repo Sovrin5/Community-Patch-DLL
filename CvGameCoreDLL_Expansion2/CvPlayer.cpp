@@ -30232,6 +30232,14 @@ int CvPlayer::GetDominationResistance(PlayerTypes ePlayer)
 
 	int iHandicapCap = GET_PLAYER(ePlayer).isHuman(ISHUMAN_HANDICAP) ? std::max(0, GET_PLAYER(ePlayer).getHandicapInfo().getResistanceCap()) : std::max(0, GC.getGame().getHandicapInfo().getAIResistanceCap());
 
+	if (GET_TEAM(getTeam()).isAtWar(GET_PLAYER(ePlayer).getTeam()))
+	{
+		const bool bWeStarted   = GetDiplomacyAI()->IsAggressor(ePlayer);
+		const bool bTheyStarted = GET_PLAYER(ePlayer).GetDiplomacyAI()->IsAggressor(GetID());
+		if (bWeStarted && !bTheyStarted) return 0;      // v3.5: no righteous fervor for the side that started this war
+		if (bWeStarted &&  bTheyStarted) iResistance /= 2; // both were coming for each other: half
+	}
+
 	return min(iHandicapCap, iResistance/25);
 }
 int CvPlayer::GetArchaeologicalDigTourism() const
