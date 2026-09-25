@@ -1004,6 +1004,8 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(ChangeOtherPlayerWarmongerAmountTimes100);
 	Method(GetWarJusticePercent);
 	Method(SetWarJusticePercent);
+	Method(IsConquestExcused);
+	Method(SetConquestExcused);
 	Method(IsDemandEverMade);
 	Method(GetNumCiviliansReturnedToMe);
 	Method(GetNumLandmarksBuiltForMe);
@@ -11794,6 +11796,26 @@ int CvLuaPlayer::lSetWarJusticePercent(lua_State* L)
 	const int iValue = lua_tointeger(L, 3);
 
 	pkPlayer->GetDiplomacyAI()->SetWarJusticePercent(eVictim, iValue);
+	return 0;
+}
+//------------------------------------------------------------------------------
+// JW3: whether this player's conquest of eVictim is excused as pure defense
+int CvLuaPlayer::lIsConquestExcused(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eVictim = (PlayerTypes) lua_tointeger(L, 2);
+
+	lua_pushboolean(L, pkPlayer->GetDiplomacyAI()->IsConquestExcused(eVictim));
+	return 1;
+}
+//------------------------------------------------------------------------------
+int CvLuaPlayer::lSetConquestExcused(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eVictim = (PlayerTypes) lua_tointeger(L, 2);
+	const bool bValue = lua_toboolean(L, 3) != 0;
+
+	pkPlayer->GetDiplomacyAI()->SetConquestExcused(eVictim, bValue);
 	return 0;
 }
 //------------------------------------------------------------------------------

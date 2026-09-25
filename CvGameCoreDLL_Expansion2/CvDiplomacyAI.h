@@ -526,6 +526,12 @@ public:
 	// so an unmodded game behaves exactly as before.
 	int GetWarJusticePercent(PlayerTypes eVictim) const;
 	void SetWarJusticePercent(PlayerTypes eVictim, int iValue);
+	// JW3: a conquest (kill/vassalization/capital) achieved in pure defense -
+	// justice 0 at the time, as recorded durably by the Just Wars Lua - is
+	// excused from the NumMajors/MinorsConquered counters (permanent warmonger
+	// floors, danger assessments). Runtime-only, Lua-rehydrated, like justice.
+	bool IsConquestExcused(PlayerTypes eVictim) const;
+	void SetConquestExcused(PlayerTypes eVictim, bool bValue);
 
 	// ------------------------------------
 	// Aggressive Postures
@@ -2005,6 +2011,7 @@ private:
 	unsigned char m_aiNumMajorsConquered[MAX_MAJOR_CIVS];
 	int m_aiWarmongerAmountTimes100[MAX_MAJOR_CIVS];
 	unsigned char m_aiWarJusticePercent[MAX_MAJOR_CIVS]; // JW3: runtime-only, not serialized
+	bool m_abConquestExcused[MAX_MAJOR_CIVS]; // JW3: defensive conquests; runtime-only, not serialized
 
 	// Aggressive Postures
 	char m_aeMilitaryAggressivePosture[MAX_CIV_PLAYERS];

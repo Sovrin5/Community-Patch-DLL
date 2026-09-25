@@ -207,6 +207,7 @@ void CvDiplomacyAI::Init(CvPlayer* pPlayer)
 			m_aiNumMajorsConquered[iI] = 0;
 			m_aiWarmongerAmountTimes100[iI] = 0;
 			m_aiWarJusticePercent[iI] = 100; // JW3: neutral until Lua says otherwise
+			m_abConquestExcused[iI] = false; // JW3: no excused conquests until Lua says otherwise
 
 			// Aggressive Postures
 			m_aePlotBuyingAggressivePosture[iI] = AGGRESSIVE_POSTURE_NONE;
@@ -5712,6 +5713,23 @@ void CvDiplomacyAI::SetWarJusticePercent(PlayerTypes eVictim, int iValue)
 	m_aiWarJusticePercent[eVictim] = (unsigned char) iValue;
 }
 
+// JW3: conquests achieved in pure defense are excused from the conquest
+// counters (permanent warmonger floors, danger assessments). Not serialized;
+// the Just Wars Lua records the fact durably and rehydrates it on every load.
+bool CvDiplomacyAI::IsConquestExcused(PlayerTypes eVictim) const
+{
+	if (eVictim < 0 || eVictim >= MAX_MAJOR_CIVS)
+		return false;
+	return m_abConquestExcused[eVictim];
+}
+
+void CvDiplomacyAI::SetConquestExcused(PlayerTypes eVictim, bool bValue)
+{
+	if (eVictim < 0 || eVictim >= MAX_MAJOR_CIVS)
+		return;
+	m_abConquestExcused[eVictim] = bValue;
+}
+
 //	-----------------------------------------------------------------------------------------------
 
 // ------------------------------------
@@ -9480,6 +9498,11 @@ void CvDiplomacyAI::DoUpdateConquestStats()
 				TeamTypes eLoopTeam = GET_PLAYER(*it).getTeam();
 
 				if (eLoopTeam == eTeam)
+					continue;
+
+				// JW3: a conquest achieved in pure defense (justice 0 at the
+				// time, recorded by the Just Wars Lua) does not count.
+				if (GET_PLAYER(ePlayer).GetDiplomacyAI()->IsConquestExcused(*it))
 					continue;
 
 				// Killed them?
