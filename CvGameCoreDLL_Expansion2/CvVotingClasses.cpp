@@ -3623,7 +3623,7 @@ std::vector<int> CvLeague::GetChoicesForDecision(ResolutionDecisionTypes eDecisi
 		{
 			if (!GET_PLAYER(m_vMembers[i].ePlayer).isMinorCiv())
 			{
-				if(!GET_TEAM(GET_PLAYER(m_vMembers[i].ePlayer).getTeam()).IsVassalOfSomeone()) // NOTE: This line prevents vassals from voting for World Congress Host/World Leader
+				if(!GET_TEAM(GET_PLAYER(m_vMembers[i].ePlayer).getTeam()).IsVassalOfSomeone()) // NOTE: This line prevents vassals from being candidates for World Congress Host/World Leader (it does not affect their votes)
 				{
 					vChoices.push_back(m_vMembers[i].ePlayer);
 				}
