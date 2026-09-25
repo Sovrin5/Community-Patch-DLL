@@ -1,4 +1,4 @@
-/*	-------------------------------------------------------------------------------------------------------
+﻿/*	-------------------------------------------------------------------------------------------------------
 	© 1991-2012 Take-Two Interactive Software and its subsidiaries.  Developed by Firaxis Games.  
 	Sid Meier's Civilization V, Civ, Civilization, 2K Games, Firaxis Games, Take-Two Interactive Software 
 	and their respective logos are all trademarks of Take-Two interactive Software, Inc.  
@@ -486,6 +486,7 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(IsWantsPeaceWithPlayer);
 	Method(GetTreatyWillingToOffer);
 	Method(GetDominationResistance);
+	Method(IsAggressor);
 	Method(GetCombatBonusVsHigherTech);
 	Method(GetCombatBonusVsLargerCiv);
 
@@ -7317,6 +7318,18 @@ int CvLuaPlayer::lGetDominationResistance(lua_State* L)
 	const PlayerTypes ePlayer = (PlayerTypes)lua_tointeger(L, 2);
 	int iResistancePower = pkPlayer->GetDominationResistance(ePlayer);
 	lua_pushinteger(L, iResistancePower);
+
+	return 1;
+}
+
+//------------------------------------------------------------------------------
+// v3.5: read-only getter so the JW2 menu can print "aggressor of record" per war
+int CvLuaPlayer::lIsAggressor(lua_State* L)
+{
+	CvPlayer* pkPlayer = GetInstance(L);
+	const PlayerTypes ePlayer = (PlayerTypes)lua_tointeger(L, 2);
+	const bool bResult = pkPlayer->GetDiplomacyAI()->IsAggressor(ePlayer);
+	lua_pushboolean(L, bResult);
 
 	return 1;
 }
