@@ -14112,50 +14112,68 @@ int CvLeagueAI::ScoreVoteChoicePlayer(CvProposal* pProposal, int iChoice, bool b
 	// Mostly same as evaluating Diplomatic Victory, but with higher value to pick others you like
 	if (pProposal->GetEffects()->bChangeLeagueHost)
 	{
-		switch (eAlignment)
+		// v3.5/F3: the master is not a foreigner - skip the bIsLiked gate and never score negative for the master.
+		if (GetPlayer()->GetDiplomacyAI()->IsVassal(eChoicePlayer))
 		{
-		case ALIGNMENT_LEADER:
-			iScore += 100000;
-			break;
-		case ALIGNMENT_SELF:
-			iScore += 200 * (iOurVotes + 1);
-			break;
-		case ALIGNMENT_TEAMMATE:
-		case ALIGNMENT_LIBERATOR:
-			iScore += 200 * (iTheirVotes + 1);
-			break;
-		case ALIGNMENT_ALLY:
-			if (bIsLiked)
+			if (eAlignment >= ALIGNMENT_CONFIDANT)
+			{
+				// CONTENT (either kind) or DISAGREE-and-voluntary: real support for our master's Host bid.
+				iScore += 200 * (iTheirVotes + 1);
+			}
+			else if (eAlignment == ALIGNMENT_FRIEND)
 			{
 				iScore += 150 * (iTheirVotes + 1);
 			}
-			break;
-		case ALIGNMENT_CONFIDANT:
-			if (bIsLiked)
+			// else: NEUTRAL/RIVAL/HATRED/ENEMY treatment of us -> 0, never negative for our master.
+		}
+		else
+		{
+			switch (eAlignment)
 			{
-				iScore += 100 * (iTheirVotes + 1);
+			case ALIGNMENT_LEADER:
+				iScore += 100000;
+				break;
+			case ALIGNMENT_SELF:
+				iScore += 200 * (iOurVotes + 1);
+				break;
+			case ALIGNMENT_TEAMMATE:
+			case ALIGNMENT_LIBERATOR:
+				iScore += 200 * (iTheirVotes + 1);
+				break;
+			case ALIGNMENT_ALLY:
+				if (bIsLiked)
+				{
+					iScore += 150 * (iTheirVotes + 1);
+				}
+				break;
+			case ALIGNMENT_CONFIDANT:
+				if (bIsLiked)
+				{
+					iScore += 100 * (iTheirVotes + 1);
+				}
+				break;
+			case ALIGNMENT_FRIEND:
+				if (bIsLiked)
+				{
+					iScore += 50 * (iTheirVotes + 1);
+				}
+				break;
+			case ALIGNMENT_RIVAL:
+				iScore += -50 * (iTheirVotes + 1);
+				break;
+			case ALIGNMENT_HATRED:
+				iScore += -150 * (iTheirVotes + 1);
+				break;
+			case ALIGNMENT_ENEMY:
+			case ALIGNMENT_WAR:
+				iScore += -300 * (iTheirVotes + 1);
+				break;
+			default:
+				break;
 			}
-			break;
-		case ALIGNMENT_FRIEND:
-			if (bIsLiked)
-			{
-				iScore += 50 * (iTheirVotes + 1);
-			}
-			break;
-		case ALIGNMENT_RIVAL:
-			iScore += -50 * (iTheirVotes + 1);
-			break;
-		case ALIGNMENT_HATRED:
-			iScore += -150 * (iTheirVotes + 1);
-			break;
-		case ALIGNMENT_ENEMY:
-		case ALIGNMENT_WAR:
-			iScore += -300 * (iTheirVotes + 1);
-			break;
-		default:
-			break;
 		}
 	}
+
 
 	// LeagueAI Options to prevent voting for other teams
 	if (iScore > 0 && GET_PLAYER(ePlayer).getTeam() != GET_PLAYER(eChoicePlayer).getTeam())
