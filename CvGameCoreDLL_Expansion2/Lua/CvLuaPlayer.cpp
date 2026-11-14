@@ -981,6 +981,7 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(StartStrategistCityAttack);
 	Method(AbortStrategistOp);
 	Method(WriteWorldReport);
+	Method(GetSiegePlan);
 	Method(GetApproachTowardsUsGuess);
 	Method(IsActHostileTowardsHuman);
 	Method(IsWillAcceptPeaceWithPlayer);
@@ -11381,6 +11382,182 @@ int CvLuaPlayer::lWriteWorldReport(lua_State* L)
 	lua_pushinteger(L, (int)(GetTickCount() - t0));
 	return 2;
 }
+// ---- Commander Phase 2: GetSiegePlan(x, y) -> JSON string. ADVICE ONLY - moves nothing, changes nothing. ----
+// For the target city at (x,y): which of OUR ranged units can hit it this turn and from which tile (best tile each,
+// one unit per tile, greedy by damage), expected damage by the game's own formula (no random part, same call as
+// CvUnitCombat), defence left after all hits, whether one melee unit can then capture, the city's heal per turn,
+// turns to fall, what is missing and what the nearest own city can buy. Only what our team can see: the city must be
+// revealed AND visible (we besiege it).
+static int SP_CityHealPerTurn(CvCity* pCity, bool bAssumeHitLastTurn)
+{
+	// mirrors CvCity::doTurn healing (VP): base + building defence/1000 + population, x3 if untouched last turn
+	if (pCity->IsBlockadedWaterAndLand()) return 0;
+	int iHeal = GD_INT_GET(CITY_HIT_POINTS_HEALED_PER_TURN);
+	int iDef = pCity->GetCityBuildings()->GetBuildingDefense();
+	iDef *= (100 + pCity->GetCityBuildings()->GetBuildingDefenseMod()); iDef /= 100;
+	iHeal += iDef / 1000;
+	if (MOD_BALANCE_VP)
+	{
+		iHeal += pCity->getPopulation();
+		if (!bAssumeHitLastTurn && pCity->getDamageTakenLastTurn() == 0 && !pCity->GetCityCitizens()->AnyPlotBlockaded())
+			iHeal *= 3;
+	}
+	if (pCity->getProductionProcess() != NO_PROCESS)
+	{
+		CvProcessInfo* pkProc = GC.getProcessInfo(pCity->getProductionProcess());
+		if (pkProc && pkProc->getDefenseValue() != 0)
+			iHeal += pCity->getYieldRateTimes100(YIELD_PRODUCTION) * pkProc->getDefenseValue() / 10000;
+	}
+	return iHeal;
+}
+struct SP_Shot { CvUnit* pU; int iPlot; int iDmg; };
+static bool SP_ByDmg(const SP_Shot& a, const SP_Shot& b) { return a.iDmg > b.iDmg; }
+// best tile for this unit to hit the city from this turn (reachable with moves left, in range, line of fire, free)
+static SP_Shot SP_BestShot(CvUnit* pU, CvCity* pCity, int iGarrisonMaxHP, int iExtraCityDamage, const std::vector<int>& vUsed)
+{
+	SP_Shot best; best.pU = pU; best.iPlot = -1; best.iDmg = 0;
+	const int iX = pCity->getX(), iY = pCity->getY();
+	ReachablePlots reach = TacticalAIHelpers::GetAllPlotsInReachThisTurn(pU, pU->plot(), 0, /*iMinMovesLeft*/ 1);
+	SMovePlot here(pU->plot()->GetPlotIndex()); reach.insertNoIndex(here); // staying put is always an option
+	for (ReachablePlots::const_iterator it = reach.begin(); it != reach.end(); ++it)
+	{
+		CvPlot* pP = GC.getMap().plotByIndex(it->iPlotIndex); if (!pP) continue;
+		if (plotDistance(pP->getX(), pP->getY(), iX, iY) > pU->GetRange()) continue;
+		if (std::find(vUsed.begin(), vUsed.end(), it->iPlotIndex) != vUsed.end()) continue;
+		if (pP != pU->plot() && pP->getNumUnits() > 0) continue;
+		if (!pU->canEverRangeStrikeAt(iX, iY, pP, false)) continue;
+		int iGD = 0;
+		int iDmg = pU->GetRangeCombatDamage(NULL, pCity, iGarrisonMaxHP, iGD, false, 0, iExtraCityDamage, NULL, pP, false, false);
+		// prefer more damage; on a tie prefer staying put, then the tile farther from the city
+		if (iDmg > best.iDmg || (iDmg == best.iDmg && best.iPlot >= 0 && pP == pU->plot()))
+		{ best.iPlot = it->iPlotIndex; best.iDmg = iDmg; }
+	}
+	return best;
+}
+int CvLuaPlayer::lGetSiegePlan(lua_State* L)
+{
+	CvPlayerAI* pMe = GetInstance(L);
+	const int iX = lua_tointeger(L, 2), iY = lua_tointeger(L, 3);
+	PlayerTypes eMe = pMe->GetID(); TeamTypes eMyTeam = pMe->getTeam();
+	CvPlot* pCityPlot = GC.getMap().plot(iX, iY);
+	CvCity* pCity = pCityPlot ? pCityPlot->getPlotCity() : NULL;
+	if (!pCity || !pCityPlot->isRevealed(eMyTeam) || !pCityPlot->isVisible(eMyTeam) || pCity->getOwner() == eMe)
+	{ lua_pushstring(L, "{\"error\":\"no visible enemy city at that tile\"}"); return 1; }
+	CvUnit* pGarrison = pCity->GetGarrisonedUnit();
+	const int iGarrisonMaxHP = (pGarrison && !pGarrison->IsDead()) ? pGarrison->GetMaxHitPoints() : 0;
+	const int iHP = pCity->GetMaxHitPoints() - pCity->getDamage();
+	const int iHeal = SP_CityHealPerTurn(pCity, true);        // what it heals per turn while we keep hitting it
+	const int iHealIdle = SP_CityHealPerTurn(pCity, false);   // what it heals if left alone this turn
+
+	std::string o; o.reserve(1 << 14);
+	o += "{"; WR_Int(o, "turn", GC.getGame().getGameTurn());
+	o += "\"target\":{\"name\":"; WR_Esc(o, pCity->getName().c_str()); o += ",";
+	WR_Int(o, "owner", pCity->getOwner()); WR_Int(o, "x", iX); WR_Int(o, "y", iY); WR_Int(o, "hp", iHP);
+	WR_Int(o, "maxhp", pCity->GetMaxHitPoints()); WR_Int(o, "garrison", iGarrisonMaxHP > 0 ? 1 : 0);
+	WR_Int(o, "heal", iHeal); WR_Int(o, "healIdle", iHealIdle, false); o += "},";
+
+	// 1) ranged strikes, greedy by damage, one unit per tile
+	std::vector<SP_Shot> vFirst; std::vector<int> vNone;
+	int iLoop = 0;
+	for (CvUnit* pU = pMe->firstUnit(&iLoop); pU; pU = pMe->nextUnit(&iLoop))
+	{
+		if (!pU->IsCanAttackRanged() || pU->isOutOfAttacks() || pU->getDomainType() == DOMAIN_AIR || pU->isDelayedDeath()) continue;
+		if (plotDistance(pU->getX(), pU->getY(), iX, iY) > pU->GetRange() + pU->baseMoves(false) + 1) continue;
+		SP_Shot s = SP_BestShot(pU, pCity, iGarrisonMaxHP, 0, vNone);
+		if (s.iPlot >= 0 && s.iDmg > 0) vFirst.push_back(s);
+	}
+	std::sort(vFirst.begin(), vFirst.end(), SP_ByDmg);
+	std::vector<int> vUsed; int iSum = 0; bool bFirst = true;
+	o += "\"strikes\":[";
+	for (size_t k = 0; k < vFirst.size() && iSum < iHP; k++)
+	{
+		SP_Shot s = SP_BestShot(vFirst[k].pU, pCity, iGarrisonMaxHP, iSum, vUsed);   // re-scored with the damage already planned
+		if (s.iPlot < 0 || s.iDmg <= 0) continue;
+		int iDmg = std::min(s.iDmg, iHP - iSum);
+		vUsed.push_back(s.iPlot); iSum += iDmg;
+		CvPlot* pP = GC.getMap().plotByIndex(s.iPlot);
+		if (!bFirst) o += ","; bFirst = false;
+		o += "{"; WR_Int(o, "id", s.pU->GetID()); o += "\"type\":"; WR_Esc(o, s.pU->getUnitInfo().GetType()); o += ",";
+		WR_Int(o, "fromX", pP->getX()); WR_Int(o, "fromY", pP->getY()); WR_Int(o, "move", pP == s.pU->plot() ? 0 : 1);
+		WR_Int(o, "dmg", iDmg, false); o += "}";
+	}
+	o += "],"; WR_Int(o, "rangedSum", iSum);
+	const int iLeft = std::max(0, iHP - iSum); WR_Int(o, "hpAfter", iLeft);
+
+	// 2) one melee unit to capture: must reach a free tile next to the city with moves left, and deal >= what is left
+	CvUnit* pCap = NULL; int iCapDmg = -1, iCapPlot = -1; int iMeleeSeen = 0;
+	iLoop = 0;
+	for (CvUnit* pU = pMe->firstUnit(&iLoop); pU; pU = pMe->nextUnit(&iLoop))
+	{
+		if (pU->IsCanAttackRanged() || !pU->IsCanAttack() || pU->isNoCapture() || pU->getDomainType() != DOMAIN_LAND || pU->isOutOfAttacks()) continue;
+		if (plotDistance(pU->getX(), pU->getY(), iX, iY) > pU->baseMoves(false) + 1) continue;
+		ReachablePlots reach = TacticalAIHelpers::GetAllPlotsInReachThisTurn(pU, pU->plot(), 0, /*iMinMovesLeft*/ 1);
+		SMovePlot here(pU->plot()->GetPlotIndex()); reach.insertNoIndex(here);
+		for (ReachablePlots::const_iterator it = reach.begin(); it != reach.end(); ++it)
+		{
+			CvPlot* pP = GC.getMap().plotByIndex(it->iPlotIndex); if (!pP) continue;
+			if (plotDistance(pP->getX(), pP->getY(), iX, iY) != 1) continue;
+			if (std::find(vUsed.begin(), vUsed.end(), it->iPlotIndex) != vUsed.end()) continue;
+			if (pP != pU->plot() && pP->getNumUnits() > 0) continue;
+			iMeleeSeen++;
+			int iSelf = 0, iGD = 0;
+			int iStr = pU->GetMaxAttackStrength(pP, pCityPlot, NULL);
+			int iDmg = pU->getMeleeCombatDamageCity(iStr, pCity, iSelf, iGarrisonMaxHP, iGD, false, 0, iSum);
+			if (iDmg > iCapDmg) { iCapDmg = iDmg; pCap = pU; iCapPlot = it->iPlotIndex; }
+		}
+	}
+	const bool bCapture = pCap && (iLeft == 0 || iCapDmg >= iLeft);
+	o += "\"melee\":";
+	if (pCap)
+	{
+		CvPlot* pP = GC.getMap().plotByIndex(iCapPlot);
+		o += "{"; WR_Int(o, "id", pCap->GetID()); o += "\"type\":"; WR_Esc(o, pCap->getUnitInfo().GetType()); o += ",";
+		WR_Int(o, "fromX", pP->getX()); WR_Int(o, "fromY", pP->getY()); WR_Int(o, "dmg", iCapDmg, false); o += "},";
+	}
+	else o += "null,";
+	WR_Int(o, "captureThisTurn", bCapture ? 1 : 0);
+
+	// 3) turns to fall: each later turn the city heals first, then we hit it again with the same ranged sum
+	int iTurns = -1;
+	if (bCapture) iTurns = 0;
+	else if (iSum > iHeal) iTurns = std::max(1, (iLeft + (iSum - iHeal) - 1) / (iSum - iHeal));
+	WR_Int(o, "turnsToFall", iTurns);
+
+	// 4) what is missing
+	o += "\"missing\":[";
+	std::string m;
+	if (vUsed.empty()) m += "\"no ranged unit can hit it this turn\"";
+	else if (iSum <= iHeal) { char b[128]; sprintf_s(b, "%s\"ranged %d/turn does not beat heal %d: need %d more per turn\"", m.empty() ? "" : ",", iSum, iHeal, iHeal - iSum + 1); m += b; }
+	if (!pCap) { m += m.empty() ? "" : ","; m += "\"no melee unit can reach and attack it this turn\""; }
+	else if (!bCapture && iLeft > 0 && iTurns != 0) { m += m.empty() ? "" : ","; m += "\"melee cannot finish it this turn\""; }
+	o += m + "],";
+
+	// 5) where to buy: nearest own city, its best purchasable land siege/ranged and melee unit
+	CvCity* pNear = NULL; int iBestD = INT_MAX; iLoop = 0;
+	for (CvCity* pC = pMe->firstCity(&iLoop); pC; pC = pMe->nextCity(&iLoop))
+	{ int d = plotDistance(pC->getX(), pC->getY(), iX, iY); if (d < iBestD) { iBestD = d; pNear = pC; } }
+	o += "\"buy\":";
+	if (pNear)
+	{
+		UnitTypes eR = NO_UNIT, eM = NO_UNIT; int iR = -1, iM = -1;
+		for (int u = 0; u < GC.getNumUnitInfos(); u++)
+		{
+			CvUnitEntry* pI = GC.getUnitInfo((UnitTypes)u); if (!pI || pI->GetDomainType() != DOMAIN_LAND) continue;
+			if (!pNear->IsCanPurchase(true, true, (UnitTypes)u, NO_BUILDING, NO_PROJECT, YIELD_GOLD)) continue;
+			if (pI->GetRangedCombat() > iR) { iR = pI->GetRangedCombat(); eR = (UnitTypes)u; }
+			if (pI->GetRangedCombat() == 0 && pI->GetCombat() > iM) { iM = pI->GetCombat(); eM = (UnitTypes)u; }
+		}
+		o += "{\"city\":"; WR_Esc(o, pNear->getName().c_str()); o += ","; WR_Int(o, "dist", iBestD); WR_Int(o, "gold", pMe->GetTreasury()->GetGold());
+		o += "\"ranged\":"; if (eR != NO_UNIT) { WR_Esc(o, GC.getUnitInfo(eR)->GetType()); o += ","; WR_Int(o, "rangedCost", pNear->GetPurchaseCost(eR)); } else o += "null,";
+		o += "\"meleeUnit\":"; if (eM != NO_UNIT) { WR_Esc(o, GC.getUnitInfo(eM)->GetType()); o += ","; WR_Int(o, "meleeCost", pNear->GetPurchaseCost(eM), false); } else o += "null";
+		o += "}";
+	}
+	else o += "null";
+	o += "}";
+	lua_pushstring(L, o.c_str());
+	return 1;
+}
+
 // SetStrategistLogging(bool): switch the game-core and AI logs on/off at runtime (split per player)
 int CvLuaPlayer::lSetStrategistLogging(lua_State* L)
 {
