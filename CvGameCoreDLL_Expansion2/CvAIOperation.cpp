@@ -865,7 +865,9 @@ void CvAIOperation::UnitWasRemoved(int iArmyID, int iSlotID)
 						iNumRequiredSlots++;
 				}
 
-				if (pThisArmy->GetNumSlotsFilled() < iNumRequiredSlots / 2)
+				// Strategist doorway: an attack on the named target city holds on down to a quarter strength (it was giving up at half on first contact)
+				size_t iAbortBelow = Strategist::IsTarget(m_eOwner, GetTargetPlot()) ? iNumRequiredSlots / 4 : iNumRequiredSlots / 2;
+				if (pThisArmy->GetNumSlotsFilled() < iAbortBelow)
 				{
 					SetToAbort(AI_ABORT_HALF_STRENGTH);
 				}
