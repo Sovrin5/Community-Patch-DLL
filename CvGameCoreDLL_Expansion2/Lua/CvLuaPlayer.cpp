@@ -11334,7 +11334,7 @@ int CvLuaPlayer::lWriteWorldReport(lua_State* L)
 		}
 	}
 	o += "],";
-	// units: ours all, others only when visible to our team
+	// units: ours all, others only when visible to our team (civilians too: generals, caravans, workers - "combat" flag tells them apart)
 	o += "\"units\":["; bFirst = true;
 	for (int i = 0; i < MAX_PLAYERS; i++)
 	{
@@ -11344,7 +11344,6 @@ int CvLuaPlayer::lWriteWorldReport(lua_State* L)
 		{
 			CvPlot* pP = pU->plot(); if (!pP) continue;
 			if (i != eMe && (!pP->isVisible(eMyTeam) || pU->isInvisible(eMyTeam, false))) continue;
-			if (!pU->IsCombatUnit() && i != eMe) continue;
 			if (!bFirst) o += ","; bFirst = false;
 			o += "{"; WR_Int(o, "id", pU->GetID()); WR_Int(o, "owner", i); o += "\"type\":"; WR_Esc(o, pU->getUnitInfo().GetType()); o += ",";
 			WR_Int(o, "x", pU->getX()); WR_Int(o, "y", pU->getY()); WR_Int(o, "hp", pU->GetMaxHitPoints() - pU->getDamage());
