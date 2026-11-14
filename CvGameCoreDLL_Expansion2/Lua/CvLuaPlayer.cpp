@@ -978,6 +978,8 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(GetStrategistExtra);
 	Method(GetStrategistOps);
 	Method(SetStrategistLogging);
+	Method(StartStrategistCityAttack);
+	Method(AbortStrategistOp);
 	Method(GetApproachTowardsUsGuess);
 	Method(IsActHostileTowardsHuman);
 	Method(IsWillAcceptPeaceWithPlayer);
@@ -11228,6 +11230,36 @@ int CvLuaPlayer::lGetStrategistOps(lua_State* L)
 #undef SETI
 		lua_rawseti(L, -2, (int)i + 1);
 	}
+	return 1;
+}
+// StartStrategistCityAttack(targetX, targetY, musterCityX, musterCityY [, maxMissingUnits=2]) -> new operation id or -1
+// Uses the engine's own operation: land if muster and target share a landmass, naval otherwise.
+int CvLuaPlayer::lStartStrategistCityAttack(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	CvPlot* pT = GC.getMap().plot(lua_tointeger(L, 2), lua_tointeger(L, 3));
+	CvPlot* pM = GC.getMap().plot(lua_tointeger(L, 4), lua_tointeger(L, 5));
+	int iMissing = luaL_optint(L, 6, 2);
+	CvCity* pTarget = pT ? pT->getPlotCity() : NULL;
+	CvCity* pMuster = pM ? pM->getPlotCity() : NULL;
+	int iID = -1;
+	if (pTarget && pMuster && pMuster->getOwner() == pkPlayer->GetID() && pTarget->getOwner() != pkPlayer->GetID()
+		&& GET_TEAM(pkPlayer->getTeam()).isAtWar(GET_PLAYER(pTarget->getOwner()).getTeam()))
+	{
+		AIOperationTypes eType = pMuster->HasSharedAreaWith(pTarget, true, false) ? AI_OPERATION_CITY_ATTACK_LAND : AI_OPERATION_CITY_ATTACK_NAVAL;
+		CvAIOperation* pOp = pkPlayer->addAIOperation(eType, iMissing < 0 ? 0 : iMissing, pTarget->getOwner(), pTarget, pMuster);
+		if (pOp) iID = pOp->GetID();
+	}
+	lua_pushinteger(L, iID);
+	return 1;
+}
+// AbortStrategistOp(operationID) -> true if found
+int CvLuaPlayer::lAbortStrategistOp(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	CvAIOperation* pOp = pkPlayer->getAIOperation(lua_tointeger(L, 2));
+	if (pOp) pOp->SetToAbort(AI_ABORT_CANCELLED);
+	lua_pushboolean(L, pOp != NULL);
 	return 1;
 }
 // SetStrategistLogging(bool): switch the game-core and AI logs on/off at runtime (split per player)

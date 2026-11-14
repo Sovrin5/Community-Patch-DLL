@@ -1050,6 +1050,8 @@ protected:
 	static int lGetStrategistExtra(lua_State* L);
 	static int lGetStrategistOps(lua_State* L);
 	static int lSetStrategistLogging(lua_State* L);
+	static int lStartStrategistCityAttack(lua_State* L);
+	static int lAbortStrategistOp(lua_State* L);
 	static int lGetApproachTowardsUsGuess(lua_State* L);
 	static int lIsActHostileTowardsHuman(lua_State* L);
 	static int lIsWillAcceptPeaceWithPlayer(lua_State* L);
