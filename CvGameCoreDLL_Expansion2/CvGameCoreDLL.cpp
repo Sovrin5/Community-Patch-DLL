@@ -19,6 +19,65 @@ extern "C" ICvGameContext1* DllGetGameContext()
 {
 	return CvDllGameContext::GetSingleton();
 }
+// ---- Hidden-desktop mouse fix (14 Nov 2026). When the game runs on a desktop that is NOT the user's input desktop
+// (Claude's hidden test desktop) its ClipCursor calls locked the user's real mouse to one monitor. Only the game exe
+// imports ClipCursor (checked: no other game module names it), so we redirect that ONE import slot to a stub that drops
+// lock requests while the game is not on the input desktop. The slot is put back on DLL unload (mods on/off reload this
+// DLL; a slot left pointing into an unloaded DLL would crash the game). On the user's own desktop nothing changes.
+typedef BOOL (WINAPI* HDF_ClipCursorFn)(const RECT*);
+static HDF_ClipCursorFn s_pHdfRealClipCursor = NULL;
+static DWORD_PTR* s_pHdfSlot = NULL;
+static bool HDF_OnInputDesktop()
+{
+	HDESK hIn = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
+	if (!hIn) return false; // cannot see the input desktop: treat as hidden (never lock)
+	HDESK hMine = GetThreadDesktop(GetCurrentThreadId());
+	char a[256] = {0}, b[256] = {0}; DWORD n = 0;
+	GetUserObjectInformationA(hIn, UOI_NAME, a, sizeof(a) - 1, &n);
+	GetUserObjectInformationA(hMine, UOI_NAME, b, sizeof(b) - 1, &n);
+	CloseDesktop(hIn);
+	return _stricmp(a, b) == 0;
+}
+static BOOL WINAPI HDF_ClipCursor(const RECT* pRect)
+{
+	if (pRect != NULL && !HDF_OnInputDesktop()) return TRUE;
+	return s_pHdfRealClipCursor ? s_pHdfRealClipCursor(pRect) : TRUE;
+}
+static bool HDF_WriteSlot(DWORD_PTR* pSlot, DWORD_PTR value)
+{
+	DWORD old = 0;
+	if (!VirtualProtect(pSlot, sizeof(DWORD_PTR), PAGE_READWRITE, &old)) return false;
+	*pSlot = value;
+	VirtualProtect(pSlot, sizeof(DWORD_PTR), old, &old);
+	return true;
+}
+static void HDF_Install()
+{
+	HMODULE hUser = GetModuleHandleA("user32.dll"); if (!hUser) return;
+	s_pHdfRealClipCursor = (HDF_ClipCursorFn)GetProcAddress(hUser, "ClipCursor"); if (!s_pHdfRealClipCursor) return;
+	BYTE* base = (BYTE*)GetModuleHandleA(NULL); if (!base) return;
+	IMAGE_DOS_HEADER* pDos = (IMAGE_DOS_HEADER*)base; if (pDos->e_magic != IMAGE_DOS_SIGNATURE) return;
+	IMAGE_NT_HEADERS* pNt = (IMAGE_NT_HEADERS*)(base + pDos->e_lfanew); if (pNt->Signature != IMAGE_NT_SIGNATURE) return;
+	IMAGE_DATA_DIRECTORY& dir = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+	if (!dir.VirtualAddress) return;
+	for (IMAGE_IMPORT_DESCRIPTOR* pImp = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress); pImp->Name && !s_pHdfSlot; pImp++)
+	{
+		if (_stricmp((const char*)(base + pImp->Name), "user32.dll") != 0) continue;
+		for (IMAGE_THUNK_DATA* pT = (IMAGE_THUNK_DATA*)(base + pImp->FirstThunk); pT->u1.Function; pT++)
+		{
+			if ((DWORD_PTR)pT->u1.Function != (DWORD_PTR)s_pHdfRealClipCursor) continue;
+			if (HDF_WriteSlot((DWORD_PTR*)&pT->u1.Function, (DWORD_PTR)&HDF_ClipCursor)) s_pHdfSlot = (DWORD_PTR*)&pT->u1.Function;
+			break;
+		}
+	}
+	if (!HDF_OnInputDesktop()) s_pHdfRealClipCursor(NULL); // release a lock taken before we loaded
+	OutputDebugStringA(s_pHdfSlot ? "HiddenDesktopFix: exe ClipCursor redirected\n" : "HiddenDesktopFix: exe ClipCursor slot NOT found\n");
+}
+static void HDF_Uninstall()
+{
+	if (s_pHdfSlot && *s_pHdfSlot == (DWORD_PTR)&HDF_ClipCursor) HDF_WriteSlot(s_pHdfSlot, (DWORD_PTR)s_pHdfRealClipCursor);
+	s_pHdfSlot = NULL;
+}
 //------------------------------------------------------------------------------
 BOOL APIENTRY DllMain(HANDLE hModule,
                       DWORD  ul_reason_for_call,
@@ -36,6 +95,7 @@ BOOL APIENTRY DllMain(HANDLE hModule,
 		DEBUG_VARIABLE(iTimeSet);
 		ASSERT(iTimeSet==TIMERR_NOERROR, "failed setting timer resolution to 1 ms");
 		CvDllGameContext::InitializeSingleton();
+		HDF_Install();
 	}
 	break;
 	case DLL_THREAD_ATTACH:
@@ -46,6 +106,7 @@ BOOL APIENTRY DllMain(HANDLE hModule,
 		break;
 	case DLL_PROCESS_DETACH:
 		OutputDebugString("DLL_PROCESS_DETACH\n");
+		HDF_Uninstall();
 		timeEndPeriod(1);
 		CvDllGameContext::DestroySingleton();
 		GC.setDLLIFace(NULL);
