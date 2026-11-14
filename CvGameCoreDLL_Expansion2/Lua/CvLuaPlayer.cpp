@@ -11300,6 +11300,11 @@ int CvLuaPlayer::lWriteWorldReport(lua_State* L)
 		WR_Int(o, "influential", kP.GetCulture()->GetNumCivsInfluentialOn());
 		WR_Int(o, "infOnUs", i == eMe ? -1 : (int)kP.GetCulture()->GetInfluenceLevel(eMe));
 		WR_Int(o, "met", kMyTeam.isHasMet(kP.getTeam()) ? 1 : 0);
+		// victory race + war cost (all of it is shown to the player in the game UI: culture overview, World Congress, victory progress)
+		WR_Int(o, "ourInf", i == eMe ? -1 : (int)pMe->GetCulture()->GetInfluenceLevel((PlayerTypes)i));
+		WR_Int(o, "just", (i != eMe && kMyTeam.isAtWar(kP.getTeam())) ? pMe->GetDiplomacyAI()->GetWarJusticePercent((PlayerTypes)i) : -1);
+		{ CvLeague* pLg = GC.getGame().GetGameLeagues()->GetActiveLeague(); WR_Int(o, "votes", pLg ? pLg->CalculateStartingVotesForMember((PlayerTypes)i) : -1); }
+		{ int iParts = 0; for (int k = 0; k < GC.getNumProjectInfos(); k++) { CvProjectEntry* pPr = GC.getProjectInfo((ProjectTypes)k); if (pPr && pPr->IsSpaceship()) iParts += kT.getProjectCount((ProjectTypes)k); } WR_Int(o, "space", iParts); }
 		int iMaster = -1;
 		std::string w, p;
 		for (int j = 0; j < MAX_MAJOR_CIVS; j++)
