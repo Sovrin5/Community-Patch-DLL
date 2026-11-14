@@ -32,6 +32,8 @@
 #include "../CvEconomicAI.h"
 #include "../CvMilitaryAI.h"
 #include "../CvCitySpecializationAI.h"
+#include "../CvAIOperation.h"
+#include "../CvArmyAI.h"
 #include "ICvDLLUserInterface.h"
 #include "CvDllInterfaces.h"
 #include "CvDllNetMessageExt.h"
@@ -974,6 +976,8 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(SetStrategistPeace);
 	Method(SetStrategistGrandStrategy);
 	Method(GetStrategistExtra);
+	Method(GetStrategistOps);
+	Method(SetStrategistLogging);
 	Method(GetApproachTowardsUsGuess);
 	Method(IsActHostileTowardsHuman);
 	Method(IsWillAcceptPeaceWithPlayer);
@@ -11188,6 +11192,49 @@ int CvLuaPlayer::lSetStrategistGrandStrategy(lua_State* L)
 {
 	CvPlayerAI* pkPlayer = GetInstance(L);
 	Strategist::SetGrandStrategy(pkPlayer->GetID(), lua_tointeger(L, 2));
+	return 0;
+}
+// GetStrategistOps() -> array of tables, one per AI operation of this player:
+// {id, name, enemy, state, offensive, tx, ty, mx, my, started, lastMoved, armies, filled, slots, armyState, ax, ay, toBuild, committed}
+int CvLuaPlayer::lGetStrategistOps(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	size_t n = pkPlayer->getNumAIOperations();
+	lua_createtable(L, (int)n, 0);
+	for (size_t i = 0; i < n; i++)
+	{
+		CvAIOperation* pOp = pkPlayer->getAIOperationByIndex(i);
+		if (!pOp) continue;
+		lua_createtable(L, 0, 20);
+#define SETI(k, v) lua_pushinteger(L, (int)(v)); lua_setfield(L, -2, k);
+		SETI("id", pOp->GetID());
+		lua_pushstring(L, pOp->GetOperationName()); lua_setfield(L, -2, "name");
+		SETI("enemy", pOp->GetEnemy());
+		SETI("state", pOp->GetOperationState());
+		SETI("offensive", pOp->IsOffensive() ? 1 : 0);
+		CvPlot* pT = pOp->GetTargetPlot(); CvPlot* pM = pOp->GetMusterPlot();
+		SETI("tx", pT ? pT->getX() : -1); SETI("ty", pT ? pT->getY() : -1);
+		SETI("mx", pM ? pM->getX() : -1); SETI("my", pM ? pM->getY() : -1);
+		SETI("started", pOp->GetTurnStarted()); SETI("lastMoved", pOp->GetLastTurnMoved());
+		SETI("armies", pOp->GetNumArmies());
+		CvArmyAI* pArmy = pOp->GetNumArmies() > 0 ? pOp->GetArmy(0) : NULL;
+		SETI("filled", pArmy ? pArmy->GetNumSlotsFilled() : 0);
+		SETI("slots", pArmy ? pArmy->GetNumFormationEntries() : 0);
+		SETI("armyState", pArmy ? (int)pArmy->GetArmyAIState() : -1);
+		CvPlot* pA = pArmy ? pArmy->GetCurrentPlot() : NULL;
+		SETI("ax", pA ? pA->getX() : -1); SETI("ay", pA ? pA->getY() : -1);
+		SETI("toBuild", pOp->GetNumUnitsStillToBuild());
+		SETI("committed", pOp->GetNumUnitsCommittedToBuild());
+#undef SETI
+		lua_rawseti(L, -2, (int)i + 1);
+	}
+	return 1;
+}
+// SetStrategistLogging(bool): switch the game-core and AI logs on/off at runtime (split per player)
+int CvLuaPlayer::lSetStrategistLogging(lua_State* L)
+{
+	bool b = lua_toboolean(L, 2) != 0;
+	GC.setLogging(b); GC.setAILogging(b); GC.setPlayerAndCityAILogSplit(b);
 	return 0;
 }
 // GetStrategistExtra(otherPlayer) -> peaceMode toward otherPlayer, grandStrategyOverride, activeGrandStrategy

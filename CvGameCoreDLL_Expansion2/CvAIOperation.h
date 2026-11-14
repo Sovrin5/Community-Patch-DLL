@@ -168,6 +168,9 @@ public:
 	bool IsNavalOperation() const { return m_eArmyType == ARMY_TYPE_NAVAL || m_eArmyType == ARMY_TYPE_COMBINED; }
 	const char* GetOperationName() const;
 	CvArmyAI* GetArmy(size_t iIndex) const;
+	size_t GetNumArmies() const { return m_viArmyIDs.size(); }
+	size_t GetNumUnitsStillToBuild() const { return m_viListOfUnitsWeStillNeedToBuild.size(); }
+	size_t GetNumUnitsCommittedToBuild() const { return m_viListOfUnitsCitiesHaveCommittedToBuild.size(); }
 
 	bool HasTargetPlot() const { return (m_iTargetX != INVALID_PLOT_COORD && m_iTargetY != INVALID_PLOT_COORD); }
 	bool HasMusterPlot() const { return (m_iMusterX != INVALID_PLOT_COORD && m_iMusterY != INVALID_PLOT_COORD); }
