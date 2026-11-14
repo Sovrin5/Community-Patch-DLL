@@ -31,6 +31,7 @@
 #include "../CvGrandStrategyAI.h"
 #include "../CvEconomicAI.h"
 #include "../CvMilitaryAI.h"
+#include "../CvTypes.h"
 #include "../CvCitySpecializationAI.h"
 #include "../CvAIOperation.h"
 #include "../CvArmyAI.h"
