@@ -982,6 +982,7 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(AbortStrategistOp);
 	Method(WriteWorldReport);
 	Method(GetSiegePlan);
+	Method(CommanderTurn);
 	Method(GetApproachTowardsUsGuess);
 	Method(IsActHostileTowardsHuman);
 	Method(IsWillAcceptPeaceWithPlayer);
@@ -11557,6 +11558,145 @@ int CvLuaPlayer::lGetSiegePlan(lua_State* L)
 	}
 	else o += "null";
 	o += "}";
+	lua_pushstring(L, o.c_str());
+	return 1;
+}
+
+// Commander Phase 3 v2 (15 Nov 2026): play our strike group against one enemy city for THIS turn with the engine's own
+// rules (ATTACK-FACTS.md): 1) withdraw hurt/endangered units to the lowest-danger tile they really reach, 2) attack
+// with the AI's battle simulator (range, line of sight, damage, city strike-back, capture), 3) the rest approach by the
+// engine's step distance around obstacles to the free reachable tile nearest the target (not inside its stand-off
+// ring, never into a tile whose danger kills it), 4) finishMoves() on the whole group so the AI's passes cannot pull it
+// away. Returns a JSON log. Lua: Player:CommanderTurn(x, y [, radius = 8, aggression = 3 (AL_HIGH)])
+static CvUnit* CT_Unit(CvPlayerAI* pMe, int iID) { CvUnit* pU = pMe->getUnit(iID); return (pU && !pU->isDelayedDeath()) ? pU : NULL; }
+int CvLuaPlayer::lCommanderTurn(lua_State* L)
+{
+	CvPlayerAI* pMe = GetInstance(L);
+	const int iX = lua_tointeger(L, 2), iY = lua_tointeger(L, 3);
+	const int iRadius = luaL_optint(L, 4, 8);
+	const int iAgg = std::max((int)AL_NONE, std::min((int)AL_BRAVEHEART, luaL_optint(L, 5, (int)AL_HIGH)));
+	const PlayerTypes eMe = pMe->GetID(); const TeamTypes eMyTeam = pMe->getTeam();
+	CvPlot* pTarget = GC.getMap().plot(iX, iY);
+	CvCity* pCity = pTarget ? pTarget->getPlotCity() : NULL;
+	if (!pCity || !pTarget->isVisible(eMyTeam) || pCity->getOwner() == eMe || !GET_TEAM(eMyTeam).isAtWar(pCity->getTeam()))
+	{ lua_pushstring(L, "{\"error\":\"no visible enemy city we are at war with at that tile\"}"); return 1; }
+
+	std::string o, acts; o.reserve(1 << 13); acts.reserve(1 << 12);
+	o += "{"; WR_Int(o, "turn", GC.getGame().getGameTurn()); WR_Int(o, "hpBefore", pCity->GetMaxHitPoints() - pCity->getDamage());
+
+	// the group (ids: units can die during the attack, so every later step re-fetches by id)
+	std::vector<int> vGroup; int iLoop = 0;
+	for (CvUnit* pU = pMe->firstUnit(&iLoop); pU; pU = pMe->nextUnit(&iLoop))
+	{
+		if (!pU->IsCombatUnit() || pU->getDomainType() != DOMAIN_LAND || pU->isDelayedDeath() || pU->isEmbarked()) continue;
+		if (pU->plot()->isCity()) continue;                       // never strip a city's garrison
+		if (plotDistance(pU->getX(), pU->getY(), iX, iY) > iRadius) continue;
+		vGroup.push_back(pU->GetID());
+	}
+	WR_Int(o, "group", (int)vGroup.size());
+	std::set<int> done;
+	char buf[200];
+
+	// 1) withdraw
+	int iWithdrew = 0;
+	for (size_t i = 0; i < vGroup.size(); i++)
+	{
+		CvUnit* pU = CT_Unit(pMe, vGroup[i]); if (!pU || !pU->canMove()) continue;
+		const int iHP = pU->GetCurrHitPoints(), iLim = pU->getLevel() >= 3 ? 55 : 40;
+		const int iD = plotDistance(pU->getX(), pU->getY(), iX, iY), iDanger = pU->GetDanger();
+		if (!((iD <= 3 && iHP * 100 < pU->GetMaxHitPoints() * iLim) || iDanger >= iHP)) continue;
+		ReachablePlots reach = TacticalAIHelpers::GetAllPlotsInReachThisTurn(pU, pU->plot(), 0);
+		CvPlot* pBest = NULL; int iBestDg = iDanger, iBestDs = iD;
+		for (ReachablePlots::const_iterator it = reach.begin(); it != reach.end(); ++it)
+		{
+			CvPlot* pP = GC.getMap().plotByIndex(it->iPlotIndex);
+			if (!pP || pP == pU->plot() || !pU->canMoveInto(*pP, CvUnit::MOVEFLAG_DESTINATION)) continue;
+			const int iDg = pU->GetDanger(pP), iDs = plotDistance(pP->getX(), pP->getY(), iX, iY);
+			if (iDg < iBestDg || (iDg == iBestDg && iDs > iBestDs)) { pBest = pP; iBestDg = iDg; iBestDs = iDs; }
+		}
+		done.insert(pU->GetID());
+		const int x0 = pU->getX(), y0 = pU->getY();
+		if (pBest) { pU->PushMission(CvTypes::getMISSION_MOVE_TO(), pBest->getX(), pBest->getY()); iWithdrew++; }
+		sprintf_s(buf, "%s{\"id\":%d,\"act\":\"withdraw\",\"hp\":%d,\"danger\":%d,\"from\":[%d,%d],\"to\":[%d,%d],\"dangerTo\":%d}",
+			acts.empty() ? "" : ",", pU->GetID(), iHP, iDanger, x0, y0, pU->getX(), pU->getY(), pBest ? iBestDg : iDanger);
+		acts += buf;
+	}
+	WR_Int(o, "withdrew", iWithdrew);
+
+	// 2) attack: the engine's battle simulator with the group units close enough for it
+	std::vector<CvUnit*> vAtt; std::vector<int> vAttIDs;
+	std::map<int, int> movesBefore, plotBefore;
+	for (size_t i = 0; i < vGroup.size(); i++)
+	{
+		CvUnit* pU = CT_Unit(pMe, vGroup[i]);
+		if (!pU || done.count(pU->GetID()) || !pU->canMove()) continue;
+		if (plotDistance(pU->getX(), pU->getY(), iX, iY) > TACTICAL_COMBAT_MAX_TARGET_DISTANCE + 1) continue;
+		vAtt.push_back(pU); vAttIDs.push_back(pU->GetID());
+		movesBefore[pU->GetID()] = pU->getMoves(); plotBefore[pU->GetID()] = pU->plot()->GetPlotIndex();
+	}
+	bool bSim = false;
+	if (!vAtt.empty()) bSim = TacticalAIHelpers::FindAndExecuteBestUnitAssignments(eMe, vAtt, pTarget, (eAggressionLevel)iAgg);
+	int iUsed = 0;
+	for (size_t i = 0; i < vAttIDs.size(); i++)
+	{
+		const int id = vAttIDs[i]; CvUnit* pU = CT_Unit(pMe, id);
+		if (!pU) { sprintf_s(buf, "%s{\"id\":%d,\"act\":\"sim\",\"result\":\"died\"}", acts.empty() ? "" : ",", id); acts += buf; iUsed++; done.insert(id); continue; }
+		if (pU->getMoves() != movesBefore[id] || pU->plot()->GetPlotIndex() != plotBefore[id])
+		{
+			CvPlot* pFrom = GC.getMap().plotByIndex(plotBefore[id]);
+			sprintf_s(buf, "%s{\"id\":%d,\"act\":\"sim\",\"from\":[%d,%d],\"to\":[%d,%d],\"hp\":%d,\"movesLeft\":%d}", acts.empty() ? "" : ",",
+				id, pFrom->getX(), pFrom->getY(), pU->getX(), pU->getY(), pU->GetCurrHitPoints(), pU->getMoves());
+			acts += buf; iUsed++; done.insert(id);
+		}
+	}
+	WR_Int(o, "simUnits", (int)vAtt.size()); WR_Int(o, "simOk", bSim ? 1 : 0); WR_Int(o, "simUsed", iUsed);
+
+	// 3) approach (only while the city is still the enemy's)
+	int iApproached = 0;
+	CvCity* pNow = pTarget->getPlotCity();
+	if (pNow && pNow->getOwner() != eMe)
+	{
+		TacticalAIHelpers::UpdatePlotDistanceToTarget(eMe, pTarget);
+		for (size_t i = 0; i < vGroup.size(); i++)
+		{
+			CvUnit* pU = CT_Unit(pMe, vGroup[i]);
+			if (!pU || done.count(pU->GetID()) || !pU->canMove()) continue;
+			const int iRing = pU->IsCanAttackRanged() ? std::max(2, pU->GetRange()) : 2;
+			if (plotDistance(pU->getX(), pU->getY(), iX, iY) <= iRing) continue;   // in place: the simulator uses it
+			const int iCur = TacticalAIHelpers::GetPlotDistanceToTarget(pU->plot()->GetPlotIndex(), DOMAIN_LAND);
+			ReachablePlots reach = TacticalAIHelpers::GetAllPlotsInReachThisTurn(pU, pU->plot(), 0);
+			CvPlot* pBest = NULL; int iBestStep = iCur, iBestDg = INT_MAX;
+			for (ReachablePlots::const_iterator it = reach.begin(); it != reach.end(); ++it)
+			{
+				CvPlot* pP = GC.getMap().plotByIndex(it->iPlotIndex);
+				if (!pP || pP == pU->plot() || plotDistance(pP->getX(), pP->getY(), iX, iY) < iRing) continue;
+				if (!pU->canMoveInto(*pP, CvUnit::MOVEFLAG_DESTINATION)) continue;
+				const int iStep = TacticalAIHelpers::GetPlotDistanceToTarget(it->iPlotIndex, DOMAIN_LAND);
+				if (iStep == INT_MAX || iStep > iBestStep) continue;
+				const int iDg = pU->GetDanger(pP);
+				if (iDg >= pU->GetCurrHitPoints()) continue;                      // never walk into death
+				if (iStep < iBestStep || iDg < iBestDg) { pBest = pP; iBestStep = iStep; iBestDg = iDg; }
+			}
+			if (!pBest || iBestStep >= iCur) continue;
+			const int x0 = pU->getX(), y0 = pU->getY();
+			pU->PushMission(CvTypes::getMISSION_MOVE_TO(), pBest->getX(), pBest->getY());
+			done.insert(pU->GetID()); iApproached++;
+			sprintf_s(buf, "%s{\"id\":%d,\"act\":\"approach\",\"from\":[%d,%d],\"to\":[%d,%d],\"steps\":%d,\"stepsNow\":%d,\"danger\":%d}",
+				acts.empty() ? "" : ",", pU->GetID(), x0, y0, pU->getX(), pU->getY(), iCur, iBestStep, iBestDg);
+			acts += buf;
+		}
+		TacticalAIHelpers::ClearPlotDistanceToTarget();
+	}
+	WR_Int(o, "approached", iApproached);
+
+	// 4) hold the whole group
+	int iHeld = 0;
+	for (size_t i = 0; i < vGroup.size(); i++) { CvUnit* pU = CT_Unit(pMe, vGroup[i]); if (pU) { pU->finishMoves(); iHeld++; } }
+	WR_Int(o, "held", iHeld);
+	CvCity* pAfter = pTarget->getPlotCity();
+	WR_Int(o, "captured", (pAfter && pAfter->getOwner() == eMe) ? 1 : 0);
+	WR_Int(o, "hpAfter", pAfter ? pAfter->GetMaxHitPoints() - pAfter->getDamage() : -1);
+	o += "\"acts\":["; o += acts; o += "]}";
 	lua_pushstring(L, o.c_str());
 	return 1;
 }

@@ -1531,6 +1531,7 @@ namespace TacticalAIHelpers
 	std::set<int> GetPlotsUnderRangedAttackFrom(const CvUnit* pUnit, ReachablePlots& basePlots, bool bOnlyWithEnemy,  bool bIgnoreVisibility);
 	void UpdatePlotDistanceToTarget(PlayerTypes ePlayer, CvPlot* pTargetPlot);
 	int GetPlotDistanceToTarget(int iPlotIndex, DomainTypes eRelevantDomain);
+	void ClearPlotDistanceToTarget();
 
 	bool PerformRangedOpportunityAttack(CvUnit* pUnit, bool bAllowMovement = false, int iSaveMovement = 0);
 	bool PerformOpportunityAttack(CvUnit* pUnit, bool bAllowMovement = false);

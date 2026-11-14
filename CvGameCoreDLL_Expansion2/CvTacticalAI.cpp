@@ -5633,6 +5633,12 @@ void TacticalAIHelpers::UpdatePlotDistanceToTarget(PlayerTypes ePlayer, CvPlot* 
 	gTargetPlot = pTargetPlot;
 }
 
+//Commander (15 Nov 2026): drop the cached distance map after our own use, so no later AI caller reads our target
+void TacticalAIHelpers::ClearPlotDistanceToTarget()
+{
+	gDistanceToTargetPlots.clear();
+}
+
 int TacticalAIHelpers::GetPlotDistanceToTarget(int iPlotIndex, DomainTypes eDomain)
 {
 	if (gDistanceToTargetPlots.empty())
