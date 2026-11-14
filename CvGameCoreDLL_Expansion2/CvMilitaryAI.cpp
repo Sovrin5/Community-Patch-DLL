@@ -2453,7 +2453,14 @@ void CvMilitaryAI::DoCityAttacks(PlayerTypes ePlayer)
 	if (iReservesTotal >= m_iRecLandUnits || (m_pPlayer->GetNumOffensiveOperations(DOMAIN_LAND)+m_pPlayer->GetNumOffensiveOperations(DOMAIN_SEA)) <= 0)
 	{
 		WarStateTypes eWarState = GET_PLAYER(ePlayer).isMajorCiv() ? m_pPlayer->GetDiplomacyAI()->GetWarState(ePlayer) : WAR_STATE_OFFENSIVE;
-		if (eWarState >= WAR_STATE_TROUBLED)
+		// Strategist doorway: if the named target city belongs to this enemy, attack even from a defensive war state
+		bool bStrategistTarget = false;
+		{
+			int iTX = Strategist::GetTargetX(m_pPlayer->GetID()), iTY = Strategist::GetTargetY(m_pPlayer->GetID());
+			CvPlot* pTPlot = iTX >= 0 ? GC.getMap().plot(iTX, iTY) : NULL;
+			bStrategistTarget = pTPlot && pTPlot->isCity() && pTPlot->getOwner() == ePlayer;
+		}
+		if (eWarState >= WAR_STATE_TROUBLED || bStrategistTarget)
 		{
 			RequestCityAttack(ePlayer, 2);
 			if (GET_PLAYER(ePlayer).isMajorCiv())

@@ -11198,7 +11198,9 @@ int CvLuaPlayer::lGetStrategistExtra(lua_State* L)
 	lua_pushinteger(L, Strategist::GetPeace(pkPlayer->GetID(), eOther));
 	lua_pushinteger(L, Strategist::GetGrandStrategy(pkPlayer->GetID()));
 	lua_pushinteger(L, (int)pkPlayer->GetGrandStrategyAI()->GetActiveGrandStrategy());
-	return 3;
+	lua_pushinteger(L, (eOther >= 0 && eOther < MAX_MAJOR_CIVS) ? (int)pkPlayer->GetDiplomacyAI()->GetWarState(eOther) : -1);
+	lua_pushinteger(L, pkPlayer->GetNumOffensiveOperations(DOMAIN_LAND));
+	return 5;
 }
 //------------------------------------------------------------------------------
 //void IsWillAcceptPeaceWithPlayer(PlayerTypes ePlayer);
