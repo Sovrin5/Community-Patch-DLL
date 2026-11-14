@@ -11417,11 +11417,14 @@ static SP_Shot SP_BestShot(CvUnit* pU, CvCity* pCity, int iGarrisonMaxHP, int iE
 {
 	SP_Shot best; best.pU = pU; best.iPlot = -1; best.iDmg = 0;
 	const int iX = pCity->getX(), iY = pCity->getY();
-	ReachablePlots reach = TacticalAIHelpers::GetAllPlotsInReachThisTurn(pU, pU->plot(), 0, /*iMinMovesLeft*/ 1);
-	SMovePlot here(pU->plot()->GetPlotIndex()); reach.insertNoIndex(here); // staying put is always an option
+	// moving first needs a FULL move left on arrival (tested 14 Nov: 1/60 left let a Comanche Rider "arrive" with 0 moves,
+	// zone of control near the city ate the rest). (The old must-set-up rule is unused in VP.)
+	ReachablePlots reach = TacticalAIHelpers::GetAllPlotsInReachThisTurn(pU, pU->plot(), 0, /*iMinMovesLeft*/ GD_INT_GET(MOVE_DENOMINATOR));
+	if (pU->canRangeStrike()) { SMovePlot here(pU->plot()->GetPlotIndex()); reach.insertNoIndex(here); } // fire from where it stands
 	for (ReachablePlots::const_iterator it = reach.begin(); it != reach.end(); ++it)
 	{
 		CvPlot* pP = GC.getMap().plotByIndex(it->iPlotIndex); if (!pP) continue;
+		if (pP != pU->plot() && (!pP->isValidMovePlot(pU->getOwner()) || pP->isEnemyUnit(pU->getOwner(), true, true))) continue;
 		if (plotDistance(pP->getX(), pP->getY(), iX, iY) > pU->GetRange()) continue;
 		if (std::find(vUsed.begin(), vUsed.end(), it->iPlotIndex) != vUsed.end()) continue;
 		if (pP != pU->plot() && pP->getNumUnits() > 0) continue;
@@ -11544,8 +11547,8 @@ int CvLuaPlayer::lGetSiegePlan(lua_State* L)
 		{
 			CvUnitEntry* pI = GC.getUnitInfo((UnitTypes)u); if (!pI || pI->GetDomainType() != DOMAIN_LAND) continue;
 			if (!pNear->IsCanPurchase(true, true, (UnitTypes)u, NO_BUILDING, NO_PROJECT, YIELD_GOLD)) continue;
-			if (pI->GetRangedCombat() > iR) { iR = pI->GetRangedCombat(); eR = (UnitTypes)u; }
-			if (pI->GetRangedCombat() == 0 && pI->GetCombat() > iM) { iM = pI->GetCombat(); eM = (UnitTypes)u; }
+			if (pI->GetRangedCombat() > 0 && pI->GetRangedCombat() > iR) { iR = pI->GetRangedCombat(); eR = (UnitTypes)u; }
+			if (pI->GetRangedCombat() == 0 && pI->GetCombat() > 0 && pI->GetCombat() > iM) { iM = pI->GetCombat(); eM = (UnitTypes)u; }
 		}
 		o += "{\"city\":"; WR_Esc(o, pNear->getName().c_str()); o += ","; WR_Int(o, "dist", iBestD); WR_Int(o, "gold", pMe->GetTreasury()->GetGold());
 		o += "\"ranged\":"; if (eR != NO_UNIT) { WR_Esc(o, GC.getUnitInfo(eR)->GetType()); o += ","; WR_Int(o, "rangedCost", pNear->GetPurchaseCost(eR)); } else o += "null,";
