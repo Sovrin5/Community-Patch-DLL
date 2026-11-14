@@ -27,15 +27,32 @@ extern "C" ICvGameContext1* DllGetGameContext()
 typedef BOOL (WINAPI* HDF_ClipCursorFn)(const RECT*);
 static HDF_ClipCursorFn s_pHdfRealClipCursor = NULL;
 static DWORD_PTR* s_pHdfSlot = NULL;
+// The engine's Windows header settings hide the desktop API, so it is looked up at runtime (user32 is always loaded).
+typedef HANDLE (WINAPI* HDF_OpenInputDesktopFn)(DWORD, BOOL, DWORD);
+typedef HANDLE (WINAPI* HDF_GetThreadDesktopFn)(DWORD);
+typedef BOOL (WINAPI* HDF_GetUserObjectInformationAFn)(HANDLE, int, PVOID, DWORD, LPDWORD);
+typedef BOOL (WINAPI* HDF_CloseDesktopFn)(HANDLE);
 static bool HDF_OnInputDesktop()
 {
-	HDESK hIn = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
+	static HDF_OpenInputDesktopFn pOpen = NULL; static HDF_GetThreadDesktopFn pThread = NULL;
+	static HDF_GetUserObjectInformationAFn pInfo = NULL; static HDF_CloseDesktopFn pClose = NULL;
+	if (!pOpen)
+	{
+		HMODULE hUser = GetModuleHandleA("user32.dll"); if (!hUser) return true;
+		pThread = (HDF_GetThreadDesktopFn)GetProcAddress(hUser, "GetThreadDesktop");
+		pInfo = (HDF_GetUserObjectInformationAFn)GetProcAddress(hUser, "GetUserObjectInformationA");
+		pClose = (HDF_CloseDesktopFn)GetProcAddress(hUser, "CloseDesktop");
+		pOpen = (HDF_OpenInputDesktopFn)GetProcAddress(hUser, "OpenInputDesktop");
+		if (!pOpen || !pThread || !pInfo || !pClose) { pOpen = NULL; return true; } // API missing: behave like the stock game
+	}
+	const DWORD kDesktopReadObjects = 0x0001; const int kUoiName = 2;
+	HANDLE hIn = pOpen(0, FALSE, kDesktopReadObjects);
 	if (!hIn) return false; // cannot see the input desktop: treat as hidden (never lock)
-	HDESK hMine = GetThreadDesktop(GetCurrentThreadId());
+	HANDLE hMine = pThread(GetCurrentThreadId());
 	char a[256] = {0}, b[256] = {0}; DWORD n = 0;
-	GetUserObjectInformationA(hIn, UOI_NAME, a, sizeof(a) - 1, &n);
-	GetUserObjectInformationA(hMine, UOI_NAME, b, sizeof(b) - 1, &n);
-	CloseDesktop(hIn);
+	pInfo(hIn, kUoiName, a, sizeof(a) - 1, &n);
+	pInfo(hMine, kUoiName, b, sizeof(b) - 1, &n);
+	pClose(hIn);
 	return _stricmp(a, b) == 0;
 }
 static BOOL WINAPI HDF_ClipCursor(const RECT* pRect)
