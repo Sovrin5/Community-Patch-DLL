@@ -3377,6 +3377,14 @@ void CvDiplomacyAI::SetCivApproach(PlayerTypes ePlayer, CivApproachTypes eApproa
 	PRECONDITION((ePlayer < MAX_MAJOR_CIVS) || (eApproach != CIV_APPROACH_DECEPTIVE && eApproach != CIV_APPROACH_GUARDED && eApproach != CIV_APPROACH_AFRAID), "Setting CivApproach towards City-State to a major approach");
 	ASSERT(NotTeam(ePlayer), "Updating static CivApproach value");
 
+	// Strategist doorway: an outside override wins over the AI's own choice (majors only)
+	if (ePlayer < MAX_MAJOR_CIVS)
+	{
+		int iOverride = Strategist::GetApproach(m_pPlayer->GetID(), ePlayer);
+		if (iOverride >= 0 && iOverride < NUM_CIV_APPROACHES)
+			eApproach = (CivApproachTypes)iOverride;
+	}
+
 	m_aeCivApproach[ePlayer] = eApproach;
 
 	// Planning war? Pick a surface approach to disguise our war plans.

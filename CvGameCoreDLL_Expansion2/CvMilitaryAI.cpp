@@ -1268,7 +1268,53 @@ int CvMilitaryAI::ScoreAttackTarget(const CvAttackTarget& target)
 	}
 	*/
 
+	// Strategist doorway: the named city outranks every other target
+	if (Strategist::IsTarget(m_pPlayer->GetID(), target.GetTargetPlot()))
+		iRtnValue = max(iRtnValue, 1) * 20;
+
 	return iRtnValue;
+}
+
+// ---- Strategist doorway storage (session-only) ----
+namespace Strategist
+{
+static int s_aiTargetX[MAX_MAJOR_CIVS];
+static int s_aiTargetY[MAX_MAJOR_CIVS];
+static int s_aiApproach[MAX_MAJOR_CIVS][MAX_MAJOR_CIVS];
+static bool s_bInit = false;
+static void Init()
+{
+	if (s_bInit) return;
+	for (int i = 0; i < MAX_MAJOR_CIVS; i++)
+	{
+		s_aiTargetX[i] = -1; s_aiTargetY[i] = -1;
+		for (int j = 0; j < MAX_MAJOR_CIVS; j++) s_aiApproach[i][j] = -1;
+	}
+	s_bInit = true;
+}
+static bool Valid(PlayerTypes e) { return e >= 0 && e < MAX_MAJOR_CIVS; }
+void SetTarget(PlayerTypes ePlayer, int iX, int iY)
+{
+	Init(); if (!Valid(ePlayer)) return;
+	s_aiTargetX[ePlayer] = iX < 0 ? -1 : iX; s_aiTargetY[ePlayer] = iX < 0 ? -1 : iY;
+}
+bool IsTarget(PlayerTypes ePlayer, const CvPlot* pPlot)
+{
+	Init(); if (!Valid(ePlayer) || !pPlot || s_aiTargetX[ePlayer] < 0) return false;
+	return pPlot->getX() == s_aiTargetX[ePlayer] && pPlot->getY() == s_aiTargetY[ePlayer];
+}
+int GetTargetX(PlayerTypes ePlayer) { Init(); return Valid(ePlayer) ? s_aiTargetX[ePlayer] : -1; }
+int GetTargetY(PlayerTypes ePlayer) { Init(); return Valid(ePlayer) ? s_aiTargetY[ePlayer] : -1; }
+void SetApproach(PlayerTypes ePlayer, PlayerTypes eOther, int iApproach)
+{
+	Init(); if (!Valid(ePlayer) || !Valid(eOther)) return;
+	s_aiApproach[ePlayer][eOther] = (iApproach >= 0 && iApproach < NUM_CIV_APPROACHES) ? iApproach : -1;
+}
+int GetApproach(PlayerTypes ePlayer, PlayerTypes eOther)
+{
+	Init(); if (!Valid(ePlayer) || !Valid(eOther)) return -1;
+	return s_aiApproach[ePlayer][eOther];
+}
 }
 
 // score 100: optimal terrain, score 0 worst terrain 

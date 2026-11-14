@@ -433,4 +433,16 @@ int EvaluateTargetApproach(const CvAttackTarget& target, PlayerTypes ePlayer, Ar
 void SetBestTargetApproach(CvAttackTarget& target, PlayerTypes ePlayer);
 }
 
+// Strategist doorway: lets an outside planner (via Lua) steer the AI of one player.
+// Session-only (not saved). iX < 0 clears the target; iApproach < 0 clears an approach override.
+namespace Strategist
+{
+void SetTarget(PlayerTypes ePlayer, int iX, int iY);
+bool IsTarget(PlayerTypes ePlayer, const CvPlot* pPlot);
+int GetTargetX(PlayerTypes ePlayer);
+int GetTargetY(PlayerTypes ePlayer);
+void SetApproach(PlayerTypes ePlayer, PlayerTypes eOther, int iApproach);
+int GetApproach(PlayerTypes ePlayer, PlayerTypes eOther);
+}
+
 #endif //CIV5_MILITARY_AI_H

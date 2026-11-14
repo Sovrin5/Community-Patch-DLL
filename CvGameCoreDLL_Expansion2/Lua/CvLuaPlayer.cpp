@@ -13,6 +13,7 @@
 //!
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #include "CvGameCoreDLLPCH.h"
+#include "CvMilitaryAI.h"
 #include "../CvGameCoreDLLPCH.h"
 #include "../CustomMods.h"
 #include "CvLuaSupport.h"
@@ -967,6 +968,9 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(DoTradeScreenClosed);
 	Method(CalculateDefensivePactLimit);
 	Method(GetMajorCivApproach);
+	Method(SetStrategistTarget);
+	Method(SetStrategistApproach);
+	Method(GetStrategistInfo);
 	Method(GetApproachTowardsUsGuess);
 	Method(IsActHostileTowardsHuman);
 	Method(IsWillAcceptPeaceWithPlayer);
@@ -11139,6 +11143,35 @@ int CvLuaPlayer::lGetMajorCivApproach(lua_State* L)
 
 	lua_pushinteger(L, pkPlayer->GetDiplomacyAI()->GetCivApproach(ePlayer));
 	return 1;
+}
+//------------------------------------------------------------------------------
+// Strategist doorway. SetStrategistTarget(x, y): x < 0 clears.
+int CvLuaPlayer::lSetStrategistTarget(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	Strategist::SetTarget(pkPlayer->GetID(), lua_tointeger(L, 2), lua_tointeger(L, 3));
+	return 0;
+}
+// SetStrategistApproach(otherPlayer, approach): approach < 0 clears. Re-applies at once.
+int CvLuaPlayer::lSetStrategistApproach(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eOther = (PlayerTypes) lua_tointeger(L, 2);
+	int iApproach = lua_tointeger(L, 3);
+	Strategist::SetApproach(pkPlayer->GetID(), eOther, iApproach);
+	if (iApproach >= 0 && eOther >= 0 && eOther < MAX_MAJOR_CIVS && eOther != pkPlayer->GetID())
+		pkPlayer->GetDiplomacyAI()->SetCivApproach(eOther, (CivApproachTypes)iApproach, false);
+	return 0;
+}
+// GetStrategistInfo(otherPlayer) -> targetX, targetY, approachOverride(toward otherPlayer)
+int CvLuaPlayer::lGetStrategistInfo(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eOther = (PlayerTypes) luaL_optint(L, 2, -1);
+	lua_pushinteger(L, Strategist::GetTargetX(pkPlayer->GetID()));
+	lua_pushinteger(L, Strategist::GetTargetY(pkPlayer->GetID()));
+	lua_pushinteger(L, Strategist::GetApproach(pkPlayer->GetID(), eOther));
+	return 3;
 }
 //------------------------------------------------------------------------------
 //void IsWillAcceptPeaceWithPlayer(PlayerTypes ePlayer);
