@@ -11315,7 +11315,7 @@ int CvLuaPlayer::lWriteWorldReport(lua_State* L)
 	o += "],";
 	// revealed cities
 	o += "\"cities\":["; bFirst = true;
-	for (int i = 0; i < MAX_CIV_PLAYERS; i++)
+	for (int i = 0; i < MAX_PLAYERS; i++)
 	{
 		CvPlayer& kP = GET_PLAYER((PlayerTypes)i); if (!kP.isAlive()) continue;
 		int iLoop = 0;
@@ -11336,7 +11336,7 @@ int CvLuaPlayer::lWriteWorldReport(lua_State* L)
 	o += "],";
 	// units: ours all, others only when visible to our team
 	o += "\"units\":["; bFirst = true;
-	for (int i = 0; i < MAX_CIV_PLAYERS; i++)
+	for (int i = 0; i < MAX_PLAYERS; i++)
 	{
 		CvPlayer& kP = GET_PLAYER((PlayerTypes)i); if (!kP.isAlive()) continue;
 		int iLoop = 0;
