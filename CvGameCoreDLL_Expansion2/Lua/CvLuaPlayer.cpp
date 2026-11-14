@@ -11269,7 +11269,7 @@ int CvLuaPlayer::lAbortStrategistOp(lua_State* L)
 static void WR_Esc(std::string& o, const char* s)
 {
 	o += '"';
-	for (; s && *s; s++) { if (*s == '"' || *s == '\') o += '\'; if ((unsigned char)*s >= 32) o += *s; }
+	for (; s && *s; s++) { if (*s == '"' || *s == '\\') o += '\\'; if ((unsigned char)*s >= 32) o += *s; }
 	o += '"';
 }
 static void WR_Int(std::string& o, const char* k, int v, bool bComma = true)
