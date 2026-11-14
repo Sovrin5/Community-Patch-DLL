@@ -980,6 +980,7 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(SetStrategistLogging);
 	Method(StartStrategistCityAttack);
 	Method(AbortStrategistOp);
+	Method(WriteWorldReport);
 	Method(GetApproachTowardsUsGuess);
 	Method(IsActHostileTowardsHuman);
 	Method(IsWillAcceptPeaceWithPlayer);
@@ -11261,6 +11262,120 @@ int CvLuaPlayer::lAbortStrategistOp(lua_State* L)
 	if (pOp) pOp->SetToAbort(AI_ABORT_CANCELLED);
 	lua_pushboolean(L, pOp != NULL);
 	return 1;
+}
+// ---- Commander Phase 1: WriteWorldReport(path) -> bytes written, milliseconds ----
+// One JSON object with everything THIS player's team can see (his rule: only what he can see).
+// Enemy units only on plots visible to our team; cities only if their plot is revealed (defence only when visible now).
+static void WR_Esc(std::string& o, const char* s)
+{
+	o += '"';
+	for (; s && *s; s++) { if (*s == '"' || *s == '\') o += '\'; if ((unsigned char)*s >= 32) o += *s; }
+	o += '"';
+}
+static void WR_Int(std::string& o, const char* k, int v, bool bComma = true)
+{
+	char b[64]; sprintf_s(b, "\"%s\":%d%s", k, v, bComma ? "," : ""); o += b;
+}
+int CvLuaPlayer::lWriteWorldReport(lua_State* L)
+{
+	CvPlayerAI* pMe = GetInstance(L);
+	const char* szPath = lua_tostring(L, 2);
+	DWORD t0 = GetTickCount();
+	PlayerTypes eMe = pMe->GetID(); TeamTypes eMyTeam = pMe->getTeam(); CvTeam& kMyTeam = GET_TEAM(eMyTeam);
+	std::string o; o.reserve(1 << 20);
+	o += "{"; WR_Int(o, "turn", GC.getGame().getGameTurn()); WR_Int(o, "me", eMe);
+	// economy (ours)
+	o += "\"econ\":{"; WR_Int(o, "gold", pMe->GetTreasury()->GetGold()); WR_Int(o, "gpt", pMe->calculateGoldRate());
+	WR_Int(o, "happy", pMe->GetExcessHappiness()); WR_Int(o, "supply", pMe->GetNumUnitsSupplied()); WR_Int(o, "mil", pMe->getNumMilitaryUnits(), false); o += "},";
+	// majors: public diplomacy + victory race
+	o += "\"majors\":[";
+	bool bFirst = true;
+	for (int i = 0; i < MAX_MAJOR_CIVS; i++)
+	{
+		CvPlayer& kP = GET_PLAYER((PlayerTypes)i); if (!kP.isAlive()) continue;
+		if (!bFirst) o += ","; bFirst = false;
+		CvTeam& kT = GET_TEAM(kP.getTeam());
+		o += "{"; WR_Int(o, "id", i); o += "\"name\":"; WR_Esc(o, kP.getName()); o += ",";
+		WR_Int(o, "score", kP.GetScore()); WR_Int(o, "cities", kP.getNumCities()); WR_Int(o, "techs", kT.GetTeamTechs()->GetNumTechsKnown());
+		WR_Int(o, "influential", kP.GetCulture()->GetNumCivsInfluentialOn());
+		WR_Int(o, "infOnUs", i == eMe ? -1 : (int)kP.GetCulture()->GetInfluenceLevel(eMe));
+		WR_Int(o, "met", kMyTeam.isHasMet(kP.getTeam()) ? 1 : 0);
+		int iMaster = -1;
+		std::string w, p;
+		for (int j = 0; j < MAX_MAJOR_CIVS; j++)
+		{
+			CvPlayer& kQ = GET_PLAYER((PlayerTypes)j); if (j == i || !kQ.isAlive()) continue;
+			if (kT.isAtWar(kQ.getTeam())) { char b[8]; sprintf_s(b, "%s%d", w.empty() ? "" : ",", j); w += b; }
+			if (kT.IsHasDefensivePact(kQ.getTeam())) { char b[8]; sprintf_s(b, "%s%d", p.empty() ? "" : ",", j); p += b; }
+			if (kT.IsVassal(kQ.getTeam())) iMaster = j;
+		}
+		WR_Int(o, "master", iMaster);
+		o += "\"wars\":[" + w + "],\"pacts\":[" + p + "]}";
+	}
+	o += "],";
+	// revealed cities
+	o += "\"cities\":["; bFirst = true;
+	for (int i = 0; i < MAX_CIV_PLAYERS; i++)
+	{
+		CvPlayer& kP = GET_PLAYER((PlayerTypes)i); if (!kP.isAlive()) continue;
+		int iLoop = 0;
+		for (CvCity* pC = kP.firstCity(&iLoop); pC; pC = kP.nextCity(&iLoop))
+		{
+			CvPlot* pP = pC->plot(); if (!pP || !pP->isRevealed(eMyTeam)) continue;
+			bool bVis = (i == eMe) || pP->isVisible(eMyTeam);
+			if (!bFirst) o += ","; bFirst = false;
+			o += "{"; o += "\"name\":"; WR_Esc(o, pC->getName().c_str()); o += ",";
+			WR_Int(o, "owner", i); WR_Int(o, "x", pC->getX()); WR_Int(o, "y", pC->getY()); WR_Int(o, "pop", pC->getPopulation());
+			WR_Int(o, "vis", bVis ? 1 : 0);
+			WR_Int(o, "hp", bVis ? pC->GetMaxHitPoints() - pC->getDamage() : -1); WR_Int(o, "maxhp", bVis ? pC->GetMaxHitPoints() : -1);
+			WR_Int(o, "str", bVis ? pC->getStrengthValue() : -1);
+			WR_Int(o, "capital", pC->isCapital() ? 1 : 0);
+			WR_Int(o, "resist", (i == eMe) ? pC->GetResistanceTurns() : -1, false); o += "}";
+		}
+	}
+	o += "],";
+	// units: ours all, others only when visible to our team
+	o += "\"units\":["; bFirst = true;
+	for (int i = 0; i < MAX_CIV_PLAYERS; i++)
+	{
+		CvPlayer& kP = GET_PLAYER((PlayerTypes)i); if (!kP.isAlive()) continue;
+		int iLoop = 0;
+		for (CvUnit* pU = kP.firstUnit(&iLoop); pU; pU = kP.nextUnit(&iLoop))
+		{
+			CvPlot* pP = pU->plot(); if (!pP) continue;
+			if (i != eMe && (!pP->isVisible(eMyTeam) || pU->isInvisible(eMyTeam, false))) continue;
+			if (!pU->IsCombatUnit() && i != eMe) continue;
+			if (!bFirst) o += ","; bFirst = false;
+			o += "{"; WR_Int(o, "id", pU->GetID()); WR_Int(o, "owner", i); o += "\"type\":"; WR_Esc(o, pU->getUnitInfo().GetType()); o += ",";
+			WR_Int(o, "x", pU->getX()); WR_Int(o, "y", pU->getY()); WR_Int(o, "hp", pU->GetMaxHitPoints() - pU->getDamage());
+			WR_Int(o, "cs", pU->GetBaseCombatStrength()); WR_Int(o, "rcs", pU->GetBaseRangedCombatStrength()); WR_Int(o, "rng", pU->GetRange());
+			WR_Int(o, "combat", pU->IsCombatUnit() ? 1 : 0);
+			if (i == eMe) { WR_Int(o, "moves", pU->getMoves()); WR_Int(o, "lvl", pU->getLevel()); WR_Int(o, "xp", pU->getExperienceTimes100() / 100); }
+			WR_Int(o, "dom", (int)pU->getDomainType(), false); o += "}";
+		}
+	}
+	o += "],";
+	// our AI operations
+	o += "\"ops\":["; bFirst = true;
+	for (size_t k = 0; k < pMe->getNumAIOperations(); k++)
+	{
+		CvAIOperation* pOp = pMe->getAIOperationByIndex(k); if (!pOp) continue;
+		if (!bFirst) o += ","; bFirst = false;
+		CvPlot* pT = pOp->GetTargetPlot(); CvArmyAI* pA = pOp->GetNumArmies() > 0 ? pOp->GetArmy(0) : NULL;
+		o += "{"; WR_Int(o, "id", pOp->GetID()); o += "\"name\":"; WR_Esc(o, pOp->GetOperationName()); o += ",";
+		WR_Int(o, "state", pOp->GetOperationState()); WR_Int(o, "tx", pT ? pT->getX() : -1); WR_Int(o, "ty", pT ? pT->getY() : -1);
+		WR_Int(o, "filled", pA ? pA->GetNumSlotsFilled() : 0); WR_Int(o, "slots", pA ? pA->GetNumFormationEntries() : 0, false); o += "}";
+	}
+	o += "]}";
+	int iBytes = -1;
+	if (szPath)
+	{
+		FILE* f = NULL;
+		if (fopen_s(&f, szPath, "wb") == 0 && f) { iBytes = (int)fwrite(o.data(), 1, o.size(), f); fclose(f); }
+	}
+	lua_pushinteger(L, iBytes);
+	lua_pushinteger(L, (int)(GetTickCount() - t0));
+	return 2;
 }
 // SetStrategistLogging(bool): switch the game-core and AI logs on/off at runtime (split per player)
 int CvLuaPlayer::lSetStrategistLogging(lua_State* L)
