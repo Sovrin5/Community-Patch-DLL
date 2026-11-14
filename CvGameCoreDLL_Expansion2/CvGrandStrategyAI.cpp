@@ -10,6 +10,7 @@
 #include "CvEconomicAI.h"
 #include "CvCitySpecializationAI.h"
 #include "CvDiplomacyAI.h"
+#include "CvMilitaryAI.h"
 #include "CvMinorCivAI.h"
 #include "ICvDLLUserInterface.h"
 #include "CvSpanSerialization.h"
@@ -371,6 +372,12 @@ void CvGrandStrategyAI::DoTurn()
 			}
 		}
 
+		// Strategist doorway: an outside override wins
+		{
+			int iStratGS = Strategist::GetGrandStrategy(m_pPlayer->GetID());
+			if (iStratGS >= 0 && iStratGS < GetAIGrandStrategies()->GetNumAIGrandStrategies())
+				eBestGrandStrategy = (AIGrandStrategyTypes)iStratGS;
+		}
 		if (eBestGrandStrategy != GetActiveGrandStrategy())
 		{
 			SetActiveGrandStrategy(eBestGrandStrategy);

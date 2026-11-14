@@ -443,6 +443,12 @@ int GetTargetX(PlayerTypes ePlayer);
 int GetTargetY(PlayerTypes ePlayer);
 void SetApproach(PlayerTypes ePlayer, PlayerTypes eOther, int iApproach);
 int GetApproach(PlayerTypes ePlayer, PlayerTypes eOther);
+// peace: -1 = AI decides, 0 = refuse peace, 1 = accept/offer at least white peace
+void SetPeace(PlayerTypes ePlayer, PlayerTypes eOther, int iMode);
+int GetPeace(PlayerTypes ePlayer, PlayerTypes eOther);
+// grand strategy override: -1 = AI decides
+void SetGrandStrategy(PlayerTypes ePlayer, int iGS);
+int GetGrandStrategy(PlayerTypes ePlayer);
 }
 
 #endif //CIV5_MILITARY_AI_H

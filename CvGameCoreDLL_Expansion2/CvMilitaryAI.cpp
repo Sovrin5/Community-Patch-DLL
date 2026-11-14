@@ -1315,6 +1315,27 @@ int GetApproach(PlayerTypes ePlayer, PlayerTypes eOther)
 	Init(); if (!Valid(ePlayer) || !Valid(eOther)) return -1;
 	return s_aiApproach[ePlayer][eOther];
 }
+static int s_aiPeace[MAX_MAJOR_CIVS][MAX_MAJOR_CIVS];
+static int s_aiGS[MAX_MAJOR_CIVS];
+static bool s_bInit2 = false;
+static void Init2()
+{
+	if (s_bInit2) return;
+	for (int i = 0; i < MAX_MAJOR_CIVS; i++) { s_aiGS[i] = -1; for (int j = 0; j < MAX_MAJOR_CIVS; j++) s_aiPeace[i][j] = -1; }
+	s_bInit2 = true;
+}
+void SetPeace(PlayerTypes ePlayer, PlayerTypes eOther, int iMode)
+{
+	Init2(); if (!Valid(ePlayer) || !Valid(eOther)) return;
+	s_aiPeace[ePlayer][eOther] = (iMode == 0 || iMode == 1) ? iMode : -1;
+}
+int GetPeace(PlayerTypes ePlayer, PlayerTypes eOther)
+{
+	Init2(); if (!Valid(ePlayer) || !Valid(eOther)) return -1;
+	return s_aiPeace[ePlayer][eOther];
+}
+void SetGrandStrategy(PlayerTypes ePlayer, int iGS) { Init2(); if (Valid(ePlayer)) s_aiGS[ePlayer] = iGS < 0 ? -1 : iGS; }
+int GetGrandStrategy(PlayerTypes ePlayer) { Init2(); return Valid(ePlayer) ? s_aiGS[ePlayer] : -1; }
 }
 
 // score 100: optimal terrain, score 0 worst terrain 

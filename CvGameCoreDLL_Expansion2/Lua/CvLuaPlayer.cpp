@@ -971,6 +971,9 @@ void CvLuaPlayer::PushMethods(lua_State* L, int t)
 	Method(SetStrategistTarget);
 	Method(SetStrategistApproach);
 	Method(GetStrategistInfo);
+	Method(SetStrategistPeace);
+	Method(SetStrategistGrandStrategy);
+	Method(GetStrategistExtra);
 	Method(GetApproachTowardsUsGuess);
 	Method(IsActHostileTowardsHuman);
 	Method(IsWillAcceptPeaceWithPlayer);
@@ -11171,6 +11174,30 @@ int CvLuaPlayer::lGetStrategistInfo(lua_State* L)
 	lua_pushinteger(L, Strategist::GetTargetX(pkPlayer->GetID()));
 	lua_pushinteger(L, Strategist::GetTargetY(pkPlayer->GetID()));
 	lua_pushinteger(L, Strategist::GetApproach(pkPlayer->GetID(), eOther));
+	return 3;
+}
+// SetStrategistPeace(otherPlayer, mode): -1 AI decides, 0 refuse peace, 1 accept/offer at least white peace
+int CvLuaPlayer::lSetStrategistPeace(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	Strategist::SetPeace(pkPlayer->GetID(), (PlayerTypes) lua_tointeger(L, 2), lua_tointeger(L, 3));
+	return 0;
+}
+// SetStrategistGrandStrategy(grandStrategyID): < 0 clears. Takes effect at the AI's next grand strategy update.
+int CvLuaPlayer::lSetStrategistGrandStrategy(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	Strategist::SetGrandStrategy(pkPlayer->GetID(), lua_tointeger(L, 2));
+	return 0;
+}
+// GetStrategistExtra(otherPlayer) -> peaceMode toward otherPlayer, grandStrategyOverride, activeGrandStrategy
+int CvLuaPlayer::lGetStrategistExtra(lua_State* L)
+{
+	CvPlayerAI* pkPlayer = GetInstance(L);
+	PlayerTypes eOther = (PlayerTypes) luaL_optint(L, 2, -1);
+	lua_pushinteger(L, Strategist::GetPeace(pkPlayer->GetID(), eOther));
+	lua_pushinteger(L, Strategist::GetGrandStrategy(pkPlayer->GetID()));
+	lua_pushinteger(L, (int)pkPlayer->GetGrandStrategyAI()->GetActiveGrandStrategy());
 	return 3;
 }
 //------------------------------------------------------------------------------

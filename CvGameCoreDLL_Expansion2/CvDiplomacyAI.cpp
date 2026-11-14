@@ -5045,6 +5045,9 @@ void CvDiplomacyAI::ChangeWarProgressScore(PlayerTypes ePlayer, int iChange)
 PeaceTreatyTypes CvDiplomacyAI::GetTreatyWillingToOffer(PlayerTypes ePlayer) const
 {
 	PRECONDITION(ePlayer >= 0 && ePlayer < MAX_MAJOR_CIVS, "Player index out of bounds");
+	int iStrat = Strategist::GetPeace(GetID(), ePlayer);
+	if (iStrat == 0) return NO_PEACE_TREATY_TYPE;
+	if (iStrat == 1) return (PeaceTreatyTypes) max((int)m_aePeaceTreatyWillingToOffer[ePlayer], (int)PEACE_TREATY_WHITE_PEACE);
 	return (PeaceTreatyTypes) m_aePeaceTreatyWillingToOffer[ePlayer];
 }
 
@@ -5059,6 +5062,9 @@ void CvDiplomacyAI::SetTreatyWillingToOffer(PlayerTypes ePlayer, PeaceTreatyType
 PeaceTreatyTypes CvDiplomacyAI::GetTreatyWillingToAccept(PlayerTypes ePlayer) const
 {
 	PRECONDITION(ePlayer >= 0 && ePlayer < MAX_MAJOR_CIVS, "Player index out of bounds");
+	int iStrat = Strategist::GetPeace(GetID(), ePlayer);
+	if (iStrat == 0) return NO_PEACE_TREATY_TYPE;
+	if (iStrat == 1) return (PeaceTreatyTypes) max((int)m_aePeaceTreatyWillingToAccept[ePlayer], (int)PEACE_TREATY_WHITE_PEACE);
 	return (PeaceTreatyTypes) m_aePeaceTreatyWillingToAccept[ePlayer];
 }
 
